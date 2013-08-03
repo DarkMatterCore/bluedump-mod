@@ -167,7 +167,7 @@ void gentables(void)
     }
 }
 
-void gkey(int nb,int nk,u8 *key)
+void gkey(int nb,int nk,char *key)
 { /* blocksize=32*nb bits. Key=32*nk bits */
   /* currently nb,bk = 4, 6 or 8          */
   /* key comes as 4*Nk bytes              */
@@ -239,7 +239,7 @@ void gkey(int nb,int nk,u8 *key)
  * Instead of just one ftable[], I could have 4, the other     *
  * 3 pre-rotated to save the ROTL8, ROTL16 and ROTL24 overhead */ 
 
-void encrypt(u8 *buff)
+void encrypt(char *buff)
 {
     int i,j,k,m;
     u32 a[8],b[8],*x,*y,*t;
@@ -286,7 +286,7 @@ void encrypt(u8 *buff)
     return;
 }
 
-void decrypt(u8 *buff)
+void decrypt(char *buff)
 {
     int i,j,k,m;
     u32 a[8],b[8],*x,*y,*t;
@@ -334,7 +334,7 @@ void decrypt(u8 *buff)
 
 void aes_set_key(u8 *key) {
   gentables();
-  gkey(4, 4, key);
+  gkey(4, 4, (char *)key);
 }
 
 // CBC mode decryption
@@ -354,7 +354,7 @@ void aes_decrypt(u8 *iv, u8 *inbuf, u8 *outbuf, unsigned long long len) {
 
     //    debug_printf("block %d: fraction = %d\n", blockno, fraction);
     memcpy(block, inbuf + blockno * sizeof(block), fraction);
-    decrypt(block);
+    decrypt((char *)block);
     u8 *ctext_ptr;
     if (blockno == 0) ctext_ptr = iv;
     else ctext_ptr = inbuf + (blockno-1) * sizeof(block);
@@ -388,7 +388,7 @@ void aes_encrypt(u8 *iv, u8 *inbuf, u8 *outbuf, unsigned long long len) {
     for(i=0; i < fraction; i++) 
       block[i] = inbuf[blockno * sizeof(block) + i] ^ iv[i];
     
-    encrypt(block);
+    encrypt((char *)block);
     memcpy(iv, block, sizeof(block));
     memcpy(outbuf + blockno * sizeof(block), block, sizeof(block));
     //    debug_printf("Block %d output: ", blockno);

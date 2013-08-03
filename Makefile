@@ -15,32 +15,32 @@ include $(DEVKITPPC)/wii_rules
 # SOURCES is a list of directories containing source code
 # INCLUDES is a list of directories containing extra header files
 #---------------------------------------------------------------------------------
-TARGET		:=	$(notdir $(CURDIR))
+TARGET		:=	boot
 BUILD		:=	build
 SOURCES		:=	source
 DATA		:=	data  
-INCLUDES	:=	source
+INCLUDES	:=	
 
 #---------------------------------------------------------------------------------
 # options for code generation
 #---------------------------------------------------------------------------------
 
-CFLAGS	= -g -O2 -Wall $(MACHDEP) $(INCLUDE) -DPAL
+CFLAGS	= -g -O1 -Wall -mrvl -Wno-unused-variable $(MACHDEP) $(INCLUDE)
 CXXFLAGS	=	$(CFLAGS)
 
-LDFLAGS	=	-g $(MACHDEP) -Wl,-Map,$(notdir $@).map -Wl
+LDFLAGS =	-g $(MACHDEP) -Wl,-Map,$(notdir $@).map
 
 #---------------------------------------------------------------------------------
 # any extra libraries we wish to link with the project
 #---------------------------------------------------------------------------------
-LIBS	:=  -lz -ldi -lwiiuse -lwiiuse -lbte -lfat -logc -lm -lmad
+LIBS	:=  -lfat -lwiiuse -lbte -lm -logc
 
 
 #---------------------------------------------------------------------------------
 # list of directories containing libraries, this must be the top level containing
 # include and lib
 #---------------------------------------------------------------------------------
-LIBDIRS	:= $(DEVKITPPC)/lib $(CURDIR)
+LIBDIRS	:= 
 
 #---------------------------------------------------------------------------------
 # no real need to edit anything past this point unless you need to add additional
@@ -99,13 +99,13 @@ export OUTPUT	:=	$(CURDIR)/$(TARGET)
 $(BUILD):
 	@[ -d $@ ] || mkdir -p $@
 	@make --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
-
 #---------------------------------------------------------------------------------
 clean:
 	@echo clean ...
 	@rm -fr $(BUILD) $(OUTPUT).elf $(OUTPUT).dol
-
-
+#---------------------------------------------------------------------------------
+run:
+	wiiload $(TARGET).elf
 #---------------------------------------------------------------------------------
 else
 
@@ -118,10 +118,9 @@ $(OUTPUT).dol: $(OUTPUT).elf
 $(OUTPUT).elf: $(OFILES)
 
 #---------------------------------------------------------------------------------
-# This rule links in binary data with the .jpg extension
+# This rule links in binary data
 #---------------------------------------------------------------------------------
-%.png.o	:	%.png
-#---------------------------------------------------------------------------------
+%.sys.o	:	%.sys
 	@echo $(notdir $<)
 	$(bin2o)
 
