@@ -8,7 +8,6 @@
 #include <ogc/usbstorage.h>
 
 #include "tools.h"
-#include "RuntimeIOSPatch.h"
 
 //#define DEBUG
 
@@ -100,7 +99,7 @@ void printheadline()
 	int rows, cols;
 	CON_GetMetrics(&cols, &rows);
 	
-	printf("BlueDump MOD v0.1.");
+	printf("BlueDump MOD v0.2.");
 	
 	char buf[64];
 	sprintf(buf, "IOS%u (v%u)", IOS_GetVersion(), IOS_GetRevision());
@@ -209,6 +208,7 @@ void Close_USB()
 
 int ahbprot_menu()
 {
+	s32 ret;
 	u32 pressed;
 	u32 pressedGC;
 
@@ -247,8 +247,9 @@ int ahbprot_menu()
 			}
 		}
 		
-		printf("Initializing IOS patches...");
-		if (!IOSPATCH_Apply())
+		printf("Initializing IOS patches... ");
+		ret = IosPatch_RUNTIME(true, false, true, false);
+		if (ret < 0)
 		{
 			/* This is a very, very weird error */
 			
@@ -270,7 +271,7 @@ int ahbprot_menu()
 			return -1;
 		}
 		
-		printf(" OK!\n\n");
+		printf("OK!\n\n");
 	} else {
 		return -1;
 	}
