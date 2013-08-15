@@ -26,8 +26,8 @@
 #include "sha1.h"
 #include "../build/cert_sys.h"
 
-#define BLOCKSIZE 2048
-#define SD_BLOCKSIZE 1024 * 32
+#define BLOCKSIZE		0x4000 // 16KB
+#define SD_BLOCKSIZE	0x8000 // 32KB
 
 #define DIRENT_T_FILE 0
 #define DIRENT_T_DIR 1
@@ -117,11 +117,6 @@ typedef struct _dirent
 	u8 otherperm;
 } dirent_t;	
 
-typedef struct _dir
-{
-	char name[ISFS_MAXPATH + 1];
-} dir_t;
-
 /* 'WAD Header' structure */
 typedef struct 
 {
@@ -148,6 +143,16 @@ void *allocate_memory(u32 size)
 {
 	return memalign(32, (size+63)&(~63));
 }
+
+typedef struct map_entry
+{
+	char filename[8];
+	u8 sha1[20];
+} __attribute__((packed)) map_entry_t;
+
+map_entry_t *cm;
+size_t content_map_size;
+size_t content_map_items;
 
 void check_not_0(size_t ret, char *error)
 {
@@ -539,7 +544,7 @@ char *read_name_from_banner_bin(u64 titleid, bool get_description)
 		}
 		
 		free(buffer);
-		return out;		
+		return out;
 	}
  	
 	free(buffer);
@@ -706,7 +711,6 @@ char *get_name(u64 titleid, bool get_description)
 
 u32 pad_data(u8 *ptr, u32 len, bool pad_16)
 {
-	u32 i;
 	u32 new_size;
 	
 	if (pad_16)
@@ -724,10 +728,7 @@ u32 pad_data(u8 *ptr, u32 len, bool pad_16)
 		if (ptr != NULL)
 		{
 			logfile("Memory buffer size reallocated successfully.\n");
-			for(i = 0; i < diff; i++)
-			{
-				ptr[len + i] = 0x00;
-			}
+			memset(&(ptr[len]), 0x00, diff);
 		} else {
 			printf("\nError reallocating memory buffer.");
 			logfile("Error reallocating memory buffer.");
@@ -776,7 +777,7 @@ u32 read_isfs(char *path, u8 **out)
 	}
 	
 	u32 fullsize = status->file_length;
-	logfile("Size = %u bytes... ", fullsize);
+	logfile("Size = %u bytes.\n", fullsize);
 	
 	u8 *out2 = allocate_memory(fullsize);
 	if(out2 == NULL) 
@@ -788,7 +789,6 @@ u32 read_isfs(char *path, u8 **out)
 		return 0;
 	}
 	
-	//logfile("\nISFS Blocksize = %d.\n", BLOCKSIZE);
 	u32 restsize = status->file_length;
 	u32 writeindex = 0;
 	
@@ -797,8 +797,7 @@ u32 read_isfs(char *path, u8 **out)
 		if (restsize >= BLOCKSIZE)
 		{
 			size = BLOCKSIZE;
-		} else
-		{
+		} else {
 			size = restsize;
 		}
 		
@@ -907,7 +906,6 @@ u32 GetTMD(FILE *f, u64 id, signed_blob **tmd, bool forgetmd)
 	
 	logfile("TMD path is '%s'.\n", path);
 	size = read_isfs(path, &buffer);
-	logfile("TMD size = %u.\n", size);
 	size2 = pad_data(buffer, size, false);
 	logfile("Padded TMD size = %u.\n", size2);
 	
@@ -936,7 +934,6 @@ u32 GetTicket(FILE *f, u64 id, signed_blob **tik, bool forgetik)
 	
 	logfile("Ticket path is '%s'.\n", path);
 	size = read_isfs(path, &buffer);
-	logfile("Ticket size = %u.\n", size);
 	size2 = pad_data(buffer, size, false);
 	logfile("Padded Ticket size = %u.\n", size2);
 	
@@ -947,7 +944,7 @@ u32 GetTicket(FILE *f, u64 id, signed_blob **tik, bool forgetik)
 	}
 	
 	/* Change the common key index to '00' */
-	/* Useful to avoid installation errors with WADs dumped from a vWii */
+	/* Useful to avoid installation errors with WADs dumped from vWii or a Korean Wii */
 	if ((buffer[0x1F1] == 0x01) || (buffer[0x1F1] == 0x02))
 	{
 		buffer[0x1F1] = 0x00;
@@ -987,11 +984,8 @@ u32 GetCerts(FILE *f)
 	return cert_sys_size;
 }
 
-u32 GetBIGContent(FILE *f, u64 id, u16 content, u16 index, u32 size)
+u32 GetContent(FILE *f, u64 id, u16 content, u16 index, u32 size)
 {
-	/* Content size is > 45MB, this is a DIRTY workaround */
-	int i;
-	u32 size2;
 	char path[ISFS_MAXPATH];
 	
 	sprintf(path, "/title/%08x/%08x/content/%08x.app", TITLE_UPPER(id), TITLE_LOWER(id), content);
@@ -1006,7 +1000,7 @@ u32 GetBIGContent(FILE *f, u64 id, u16 content, u16 index, u32 size)
 		return 0;
 	}
 	
-	u32 blksize = BLOCKSIZE;
+	u32 blksize = BLOCKSIZE; // 16KB
 	
 	u8 *buffer = (u8*)memalign(32, blksize);
 	if (buffer == NULL)
@@ -1018,30 +1012,21 @@ u32 GetBIGContent(FILE *f, u64 id, u16 content, u16 index, u32 size)
 		Reboot();
 	}
 	
-	logfile("Creating unencrypted temp file...\n");
-	
-	FILE *app_temp;
-	
-	if (isSD)
+	u8 *encryptedcontentbuf = (u8*)memalign(32, blksize);
+	if (encryptedcontentbuf == NULL)
 	{
-		app_temp = fopen("sd:/bluedump_temp.app", "wb");
-	} else {
-		app_temp = fopen("usb:/bluedump_temp.app", "wb");
-	}
-	
-	if (app_temp == NULL)
-	{
-		//printf("Failed to write temporal content file.");
-		logfile("Failed to write temporal content file.");
-		free(buffer);
+		//printf("Allocating memory for buffer failed.\n");
+		logfile("Allocating memory for encryptedcontentbuf failed.\n");
 		ISFS_Close(fd);
 		Unmount_Devices();
 		Reboot();
 	}
 	
 	s32 ret = 0;
-	u32 wrote = blksize;
+	static u8 iv[16];
+	u32 i, pad, size2 = 0;
 	
+	logfile("Writing...\n");
 	for (i = 0; i < size; i += blksize)
 	{
 		if (blksize > size - i)
@@ -1052,110 +1037,88 @@ u32 GetBIGContent(FILE *f, u64 id, u16 content, u16 index, u32 size)
 		ret = ISFS_Read(fd, buffer, blksize);
 		if (ret < 0) break;
 		
-		wrote = fwrite(buffer, 1, blksize, app_temp);
-		if (wrote != blksize) break;
-	}
-	
-	free(buffer);
-	ISFS_Close(fd);
-	
-	if (ret < 0 || wrote != blksize)
-	{
-		//printf("Failed to write content to file buffer.");
-		logfile("Failed to write content to file buffer.");
-		fclose(app_temp);
-		if (isSD)
+		/* Pad data to a 16-byte boundary (required for the encryption process). Probably only needed for the last chunk */
+		if ((blksize % 16) != 0)
 		{
-			remove("sd:/bluedump_temp.app");
-		} else {
-			remove("usb:/bluedump_temp.app");
+			pad = 16 - blksize % 16;
+			memset(&(buffer[blksize]), 0x00, pad);
+			logfile("Content chunk #%u padded to a 16-byte boundary. Current blksize: %u.\n", (i / BLOCKSIZE), blksize);
+			blksize += pad;
 		}
-		Unmount_Devices();
-		Reboot();
-	}
-	
-	/* Content padding */
-	char *null_ch = 0x00;
-	size2 = round64(size);
-	u32 pad_size = size2 - size;
-	if (pad_size > 0)
-	{
-		fwrite(null_ch, 1, pad_size, app_temp);
-	}
-	
-	logfile("Temporal file 'bluedump_temp.app' (padded) created successfully.\n");
-	
-	/* SUPER TEST */
-	fclose(app_temp);
-	Unmount_Devices();
-	Reboot();
-	
-	/* Encrypt data using 4KB chunks */
-	blksize = 4096;
-	
-	logfile("Encrypting temp file data in 4KB chunks... ");
-	
-	u8 *encryptedcontentbuf = allocate_memory(blksize);
-	u8 *decryptedcontentbuf = allocate_memory(blksize);
-	if (encryptedcontentbuf == NULL || decryptedcontentbuf == NULL)
-	{
-		//printf("Allocating memory for encrypting operations failed.\n");
-		logfile("\nAllocating memory for encrypting operations failed.\n");
-		fclose(app_temp);
-		if (isSD)
-		{
-			remove("sd:/bluedump_temp.app");
-		} else {
-			remove("usb:/bluedump_temp.app");
-		}
-		Unmount_Devices();
-		Reboot();
-	}
-	
-	while (read > 0)
-	{
-		u32 read = fread(decryptedcontentbuf, 1, blksize, app_temp);
 		
-		encrypt_buffer(index, decryptedcontentbuf, encryptedcontentbuf, blksize);
+		/* Save the last 16 bytes of the previous encrypted chunk to use them as the IV for the next one */
+		if (blksize < size - i)
+		{
+			memset(iv, 0, 16);
+			
+			if (i == 0)
+			{
+				memcpy(iv, &index, 2);
+			} else {
+				memcpy(iv, &(encryptedcontentbuf[blksize - 16]), 16);
+				
+				/*if (i == BLOCKSIZE)
+				{
+					logfile("IV for chunk #2: ");
+					hex_key_dump(iv, sizeof(iv));
+					logfile("\n");
+				}*/
+			}
+		}
+		
+		aes_encrypt(iv, buffer, encryptedcontentbuf, blksize);
+		
+		/* Pad data to a 64-byte boundary (required for the WAD alignment). Again, probably only needed for the last chunk */
+		if ((blksize % 64) != 0)
+		{
+			pad = 64 - blksize % 64;
+			memset(&(encryptedcontentbuf[blksize]), 0x00, pad);
+			logfile("Encrypted content chunk #%u padded to a 64-byte boundary. Current blksize: %u.\n", (i / BLOCKSIZE), blksize);
+			blksize += pad;
+		}
 		
 		fwrite(encryptedcontentbuf, 1, blksize, f);
+		
+		size2 += blksize;
 	}
 	
-	logfile("done.\nContent added successfully.\n");
+	logfile("Content added successfully. Original content size: %u bytes. size2: %u bytes.\n", size, size2);
 	
+	free(buffer);
 	free(encryptedcontentbuf);
-	free(decryptedcontentbuf);
-	fclose(app_temp);
+	ISFS_Close(fd);
 	
-	/* Remove temporal content file */
-	if (isSD)
+	if (ret < 0)
 	{
-		remove("sd:/bluedump_temp.app");
-	} else {
-		remove("usb:/bluedump_temp.app");
+		//printf("Failed to read data into content buffer.");
+		logfile("Failed to read data into content buffer.");
+		fclose(f);
+		Unmount_Devices();
+		Reboot();
 	}
+	
+	printf("done.\n");
 	
 	header->data_len += size2;
 	return size2;
 }
 
-u32 GetContent(FILE *f, u64 id, u16 content, u16 index)
+/*u32 GetContent(FILE *f, u64 id, u16 content, u16 index)
 {
-	/* Code slightly modified to avoid allocating more space than what is actually available */
-	/* That means, only a single buffer is used now: encryptedcontentbuf */
-	/* Works fine, and actually fixes some dumping problems (like freezes or code dumps) */
+	// Code slightly modified to avoid allocating more space than what is actually available
+	// That means, only a single buffer is used now: buf
+	// Works fine, and actually fixes some dumping problems (like freezes or code dumps)
 	
+	u8 *buf;
+	u32 size;
 	char path[ISFS_MAXPATH];
-	u8 *encryptedcontentbuf;
-	
-	u32 size, size2, size3;
 	
 	sprintf(path, "/title/%08x/%08x/content/%08x.app", TITLE_UPPER(id), TITLE_LOWER(id), content);
 	logfile("Regular content path is '%s'.\n", path);
 	printf("Adding regular content %08x.app... ", content);
 	
 	logfile("Reading... ");
-	size = read_isfs(path, &encryptedcontentbuf);
+	size = read_isfs(path, &buf);
 	if (size == 0)
 	{
 		printf("\nReading content failed, size = 0.\n");
@@ -1163,37 +1126,52 @@ u32 GetContent(FILE *f, u64 id, u16 content, u16 index)
 		Unmount_Devices();
 		Reboot();
 	}
-	logfile("done.\nPadding... ");
 	
-	size2 = pad_data(encryptedcontentbuf, size, true);
-	encrypt_buffer(index, encryptedcontentbuf, encryptedcontentbuf, size2);
+	logfile("done.\nPadding decrypted data to 16-byte boundary... ");
 	
-	size3 = pad_data(encryptedcontentbuf, size2, false);
+	if ((size % 16) != 0)
+	{
+		// Pad data to a 16-byte boundary. Necessary for the encryption process
+		size = pad_data(buf, size, true);
+		logfile("done. New size: %u bytes.\n", size);
+	} else {
+		logfile("not needed.\n");
+	}
 	
-	logfile("done. New size: %u bytes.\n", size3);
+	encrypt_buffer(index, buf, buf, size);
+	
+	logfile("Padding encrypted data to 64-byte boundary... ");
+	if ((size % 64) != 0)
+	{
+		// Pad data to a 64-byte boundary. Necessary for the WAD alignment
+		size = pad_data(buf, size, false);
+		logfile("done. New size: %u bytes.\n", size);
+	} else {
+		logfile("not needed.\n");
+	}
 	
 	logfile("Writing... ");
 	u32 writeindex = 0;
-	u32 restsize = size3;
+	u32 restsize = size;
 	while (restsize > 0)
 	{
 		if (restsize >= SD_BLOCKSIZE)
 		{
-			fwrite(&(encryptedcontentbuf[writeindex]), 1, SD_BLOCKSIZE, f);
+			fwrite(&(buf[writeindex]), 1, SD_BLOCKSIZE, f);
 			restsize = restsize - SD_BLOCKSIZE;
 			writeindex = writeindex + SD_BLOCKSIZE;
 		} else {
-			fwrite(&(encryptedcontentbuf[writeindex]), 1, restsize, f);
+			fwrite(&(buf[writeindex]), 1, restsize, f);
 			restsize = 0;
 		}
 	}
 	logfile("done. Content added successfully.\n");
 
-	free(encryptedcontentbuf);
-	header->data_len += size3;
+	free(buf);
+	header->data_len += size;
 	printf("done.\n");
-	return size3;
-}
+	return size;
+}*/
 
 void *GetContentMap(size_t *cm_size)
 {
@@ -1222,7 +1200,7 @@ void *GetContentMap(size_t *cm_size)
 	if (buf != NULL)
 	{
 		ISFS_Read(fd, (char*)buf, *cm_size);
-		logfile("done.\n");
+		logfile("done.\n\n");
 	}
 	
 	ISFS_Close(fd);
@@ -1254,11 +1232,17 @@ void GetSharedContent(FILE *f, u16 index, u8* hash, map_entry_t *cm, u32 element
 				Unmount_Devices();
 				Reboot();
 			}
-			logfile("done.\nPadding... ");
+			logfile("done.\n");
 			
-			u32 size2 = pad_data(shared_buf, shared_size, true);
+			if ((shared_size % 16) != 0)
+			{
+				/* Required for the encryption process */
+				logfile("Padding decrypted data to a 16-byte boundary... ");
+				shared_size = pad_data(shared_buf, shared_size, true);
+				logfile("done. New size: %u bytes.\n", shared_size);
+			}
 			
-			u8 *encryptedcontentbuf = allocate_memory(size2);
+			u8 *encryptedcontentbuf = allocate_memory(shared_size);
 			if(encryptedcontentbuf == NULL) 
 			{ 
 				//printf("\nError allocating memory for encryptedcontentbuf."); 
@@ -1268,16 +1252,20 @@ void GetSharedContent(FILE *f, u16 index, u8* hash, map_entry_t *cm, u32 element
 				Reboot(); 
 			}
 			
-			encrypt_buffer(index, shared_buf, encryptedcontentbuf, size2);
-			u32 padded_size = pad_data(encryptedcontentbuf, size2, false);
-			
-			logfile("done. New size: %u bytes.\n", padded_size);
-			
+			encrypt_buffer(index, shared_buf, encryptedcontentbuf, shared_size);
 			free(shared_buf);
+			
+			if ((shared_size % 64) != 0)
+			{
+				/* Required for the WAD alignment */
+				logfile("Padding encrypted data to a 64-byte boundary... ");
+				shared_size = pad_data(encryptedcontentbuf, shared_size, false);
+				logfile("done. New size: %u bytes.\n", shared_size);
+			}
 			
 			logfile("Writing... ");
 			u32 writeindex = 0;
-			u32 restsize = padded_size;
+			u32 restsize = shared_size;
 			while (restsize > 0)
 			{
 				if (restsize >= SD_BLOCKSIZE)
@@ -1292,7 +1280,7 @@ void GetSharedContent(FILE *f, u16 index, u8* hash, map_entry_t *cm, u32 element
 			}
 			logfile("done. Content added successfully.\n");
 			
-			header->data_len += padded_size;
+			header->data_len += shared_size;
 			free(encryptedcontentbuf);
 			break;
 		}
@@ -1512,7 +1500,7 @@ s32 flash(char* source, char* destination)
 	
 	fseek(file, 0, SEEK_END);
 	u32 filesize = ftell(file);
-	fseek(file, 0, SEEK_SET);
+	rewind(file);
 	printf("Flashing to '%s'.\n", destination);
 	logfile("Flashing to '%s'.\n", destination);
 	
@@ -1787,29 +1775,23 @@ bool writefolder(char *source, char *temp, char *destination, char *path_out, bo
 	return true;
 }
 
-/*char *CheckIfIllegal(char *name)
+char *RemoveIllegalCharacters(char *name)
 {
-	u32 i;
-	char *temp = NULL;
-	u32 len = strlen(name);
+	u32 i, len = strlen(name);
 	
 	for (i = 0; i < len; i++)
 	{
-		*temp = name[i];
-		
-		if ((strcmp(temp, "?") == 0) || (strcmp(temp, "[") == 0) || (strcmp(temp, "]") == 0) || \
-			(strcmp(temp, "/") == 0) || (strcmp(temp, "\\") == 0) || (strcmp(temp, "=") == 0) || \
-			(strcmp(temp, "+") == 0) || (strcmp(temp, "<") == 0) || (strcmp(temp, ">") == 0) || \
-			(strcmp(temp, ":") == 0) || (strcmp(temp, ";") == 0) || (strcmp(temp, "\"") == 0) || \
-			(strcmp(temp, ",") == 0) || (strcmp(temp, "*") == 0) || (strcmp(temp, "|") == 0) || \
-			(strcmp(temp, "^") == 0))
+		if (name[i] == '?' || name[i] == '[' || name[i] == ']' || name[i] == '/' || name[i] == '\\' || \
+			name[i] == '=' || name[i] == '+' || name[i] == '<' || name[i] == '>' || name[i] == ':' || \
+			name[i] == ';' || name[i] == '\"' || name[i] == ',' || name[i] == '*' || name[i] == '|' || \
+			name[i] == '^')
 		{
 			name[i] = '_';
 		}
 	}
 	
 	return name;
-}*/
+}
 
 bool extract_savedata(u64 titleID)
 {
@@ -1830,13 +1812,13 @@ bool extract_savedata(u64 titleID)
 	{
 		if (isSD)
 		{
-			sprintf(device_path, "sd:/BlueDump/Savedata/DISC %s", temp);
-			//sprintf(device_path, "sd:/BlueDump/Savedata/DISC %s - %s", temp, CheckIfIllegal(get_name(titleID, false)));
+			//sprintf(device_path, "sd:/BlueDump/Savedata/DISC %s", temp);
+			sprintf(device_path, "sd:/BlueDump/Savedata/DISC %s - %s", temp, RemoveIllegalCharacters(get_name(titleID, false)));
 			logfile("Savedata type: disc-based game.\n");
 			logfile("SD path is '%s'.\n", device_path);
 		} else {
-			sprintf(device_path, "usb:/BlueDump/Savedata/DISC %s", temp);
-			//sprintf(device_path, "usb:/BlueDump/Savedata/DISC %s - %s", temp, CheckIfIllegal(get_name(titleID, false)));
+			//sprintf(device_path, "usb:/BlueDump/Savedata/DISC %s", temp);
+			sprintf(device_path, "usb:/BlueDump/Savedata/DISC %s - %s", temp, RemoveIllegalCharacters(get_name(titleID, false)));
 			logfile("Savedata type: disc-based game.\n");
 			logfile("USB path is '%s'.\n", device_path);
 		}
@@ -1845,13 +1827,13 @@ bool extract_savedata(u64 titleID)
 	{
 		if (isSD)
 		{
-			sprintf(device_path, "sd:/BlueDump/Savedata/CHAN %s", temp);
-			//sprintf(device_path, "sd:/BlueDump/Savedata/CHAN %s - %s", temp, CheckIfIllegal(get_name(titleID, false)));
+			//sprintf(device_path, "sd:/BlueDump/Savedata/CHAN %s", temp);
+			sprintf(device_path, "sd:/BlueDump/Savedata/CHAN %s - %s", temp, RemoveIllegalCharacters(get_name(titleID, false)));
 			logfile("Savedata type: downloaded channel title.\n");
 			logfile("SD path is '%s'.\n", device_path);
 		} else {
-			sprintf(device_path, "usb:/BlueDump/Savedata/CHAN %s", temp);
-			//sprintf(device_path, "usb:/BlueDump/Savedata/CHAN %s - %s", temp, CheckIfIllegal(get_name(titleID, false)));
+			//sprintf(device_path, "usb:/BlueDump/Savedata/CHAN %s", temp);
+			sprintf(device_path, "usb:/BlueDump/Savedata/CHAN %s - %s", temp, RemoveIllegalCharacters(get_name(titleID, false)));
 			logfile("Savedata type: downloaded channel title.\n");
 			logfile("USB path is '%s'.\n", device_path);
 		}
@@ -1860,13 +1842,13 @@ bool extract_savedata(u64 titleID)
 	{
 		if (isSD)
 		{
-			sprintf(device_path, "sd:/BlueDump/Savedata/CHSV %s", temp);
-			//sprintf(device_path, "sd:/BlueDump/Savedata/CHSV %s - %s", temp, CheckIfIllegal(get_name(titleID, false)));
+			//sprintf(device_path, "sd:/BlueDump/Savedata/CHSV %s", temp);
+			sprintf(device_path, "sd:/BlueDump/Savedata/CHSV %s - %s", temp, RemoveIllegalCharacters(get_name(titleID, false)));
 			logfile("Savedata type: game that uses channel.\n");
 			logfile("SD path is '%s'.\n", device_path);
 		} else {
-			sprintf(device_path, "usb:/BlueDump/Savedata/CHSV %s", temp);
-			//sprintf(device_path, "usb:/BlueDump/Savedata/CHSV %s - %s", temp, CheckIfIllegal(get_name(titleID, false)));
+			//sprintf(device_path, "usb:/BlueDump/Savedata/CHSV %s", temp);
+			sprintf(device_path, "usb:/BlueDump/Savedata/CHSV %s - %s", temp, RemoveIllegalCharacters(get_name(titleID, false)));
 			logfile("Savedata type: game that uses channel.\n");
 			logfile("USB path is '%s'.\n", device_path);
 		}
@@ -1924,7 +1906,7 @@ bool install_savedata(u64 titleID)
 	return success;
 }	
 
-/* Taken from Wiibrew */
+/* Info taken from Wiibrew */
 char *GetSysMenuVersion(u16 version)
 {
 	switch(version)
@@ -2016,7 +1998,7 @@ char *GetSysMenuVersion(u16 version)
 
 void browser(char cpath[ISFS_MAXPATH + 1], dirent_t* ent, int cline, int lcnt)
 {
-	logfile("BROWSER: ");
+	logfile("\n\nBROWSER: ");
 	int i;
 	resetscreen();
 	printheadline();
@@ -2275,7 +2257,6 @@ s32 Wad_Dump(u64 id, char *path, bool ftik, bool ftmd)
 		Unmount_Devices();
 		Reboot();
 	}
-	
 	memset(padding_table, 0, 64);
 	fwrite(padding_table, 1, 64, wadout);
 	free(padding_table);
@@ -2322,24 +2303,9 @@ s32 Wad_Dump(u64 id, char *path, bool ftik, bool ftmd)
 	aes_set_key(key);
 	printf("done.\n");
 	logfile("done.\n");
+	free(p_tik);
 	
 	char footer_path[ISFS_MAXPATH];
-	
-	map_entry_t *cm = NULL;
-	size_t content_map_size = 0;
-	size_t content_map_items = 0;
-	
-	cm = (map_entry_t*)GetContentMap(&content_map_size);
-	if(cm == NULL || content_map_size == 0)
-	{
-		printf("\nError loading '/shared1/content.map', size = 0.");
-		logfile("\nError loading '/shared1/content.map', size = 0.");
-		fclose(wadout);
-		free(header);
-		Unmount_Devices();
-		Reboot();
-	}
-	content_map_items = content_map_size/sizeof(map_entry_t);
 	
 	tmd_data = (tmd *)SIGNATURE_PAYLOAD(p_tmd);
 	for (cnt = 0; cnt < tmd_data->num_contents; cnt++) 
@@ -2356,44 +2322,41 @@ s32 Wad_Dump(u64 id, char *path, bool ftik, bool ftmd)
 		switch(type)
 		{
 			case 0x0001: // Normal
-				if (content->size > 0x2D00000) // 45MB
-				{
-					logfile("Content size is too big! Dirty workaround procedure is in effect!\n");
-					len2 = GetBIGContent(wadout, id, content->cid, content->index, (u32)content->size);
-				} else {
-					len2 = GetContent(wadout, id, content->cid, content->index);
-				}
+				len2 = GetContent(wadout, id, content->cid, content->index, (u32)content->size);
 				check_not_0(len2, "Error reading content.\n");
-				if (cnt == 0) sprintf(footer_path, "/title/%08x/%08x/content/%08x.app", TITLE_UPPER(id), TITLE_LOWER(id), content->cid);
 				break;
 			case 0x8001: // Shared
 				GetSharedContent(wadout, content->index, content->hash, cm, content_map_items);
 				break;
 			case 0x4001: // DLC
-				len2 = GetContent(wadout, id, content->cid, content->index);
+				len2 = GetContent(wadout, id, content->cid, content->index, (u32)content->size);
 				check_not_0(len2, "Error reading content.\n");
 				break;
 			default:
-				printf("Unknown content type: %04x. Aborting mission...\n", type);
-				logfile("Unknown content type  %04x. Aborting mission...\n", type);
+				printf("Unknown content type: 0x%04x. Aborting mission...\n", type);
+				logfile("Unknown content type: 0x%04x. Aborting mission...\n", type);
 				sleep(3);
 				Unmount_Devices();
 				Reboot();
 				break;
-		}			
+		}
+		
+		if (cnt == 0)
+		{
+			sprintf(footer_path, "/title/%08x/%08x/content/%08x.app", TITLE_UPPER(id), TITLE_LOWER(id), content->cid);
+		}
 	}
 	
+	free(p_tmd);
+	
 	/* Add unencrypted footer */
-	u32 footer_size;
 	u8 *footer_buf;
+	u32 footer_size;
 	printf("Adding footer... ");
 	logfile("Adding footer... ");
 	footer_size = read_isfs(footer_path, &footer_buf);
-	if (footer_size > 0)
-	{
-		fwrite(footer_buf, 1, footer_size, wadout);
-		header->footer_len = footer_size;
-	}
+	fwrite(footer_buf, 1, footer_size, wadout);
+	header->footer_len = footer_size;
 	free(footer_buf);
 	printf("done.\n");
 	logfile("done.\n");
@@ -2401,12 +2364,10 @@ s32 Wad_Dump(u64 id, char *path, bool ftik, bool ftmd)
 	/* Add WAD header */
 	printf("Writing header info... ");
 	logfile("Writing header info... ");
-	fseek(wadout, 0, SEEK_SET);
+	rewind(wadout);
 	fwrite((u8 *)header, 1, 0x20, wadout);
 	printf("done.\n");
-	logfile("done.\n");
-	
-	logfile("Header hexdump:\n");
+	logfile("done.\nHeader hexdump:\n");
 	hexdump_log(header, 0x20);
 	
 	fclose(wadout);	
@@ -2572,7 +2533,7 @@ void dump_menu(char *cpath, char *tmp, int cline, int lcnt, dirent_t *ent)
 	}
 	
 	
-	logfile("cline :%s.\n", some);
+	logfile("cline: %s.\n", some);
 	switch(selection)
 	{
 		case 0: // Backup savedata
@@ -2939,6 +2900,17 @@ void bluedump_loop()
 	logfile("BlueDump MOD v0.1 - Logfile.\n");
 	logfile("SDmnt(%d), USBmnt(%d), isSD(%d).\n\n", SDmnt, USBmnt, isSD);
 	
+	/* Read the content.map file here to avoid reading it at a later time */
+	cm = (map_entry_t*)GetContentMap(&content_map_size);
+	if(cm == NULL || content_map_size == 0)
+	{
+		printf("\n\nError loading '/shared1/content.map', size = 0.");
+		logfile("\nError loading '/shared1/content.map', size = 0.");
+		Unmount_Devices();
+		Reboot();
+	}
+	content_map_items = content_map_size/sizeof(map_entry_t);
+	
 	char tmp[ISFS_MAXPATH + 1];
 	char cpath[ISFS_MAXPATH + 1];	
 	dirent_t* ent = NULL;
@@ -2949,7 +2921,7 @@ void bluedump_loop()
 	cline = 0;
 	browser(cpath, ent, cline, lcnt);
 	
-	while (1) 
+	while(true)
 	{
 		waitforbuttonpress(&pressed, &pressedGC);
 		
@@ -3050,6 +3022,8 @@ void bluedump_loop()
 		/* Chicken out */
 		if (pressed == WPAD_BUTTON_HOME || pressedGC == PAD_BUTTON_START) break;
 	}
+	
+	free(cm);
 	
 	/* End of app loop */
 }

@@ -1,0 +1,75 @@
+﻿<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+	<app version="1">
+		<name>BlueDump</name>
+		<coder>nicksasa, DarkMatterCore</coder>
+		<version>MOD v0.2</version>
+		<release_date>20130815160000</release_date>
+		<short_description>Title and save manager</short_description>
+		<long_description>BlueDump is an application capable of dumping any type of title installed in your Wii console to a WAD file in a SD Card or an USB storage device. It can also backup and restore savegames in their unencrypted form.
+
+This version was heavily modified to fix bugs and add some corrections that make the WAD dumping process more accurate; that means, the resulting files now match with the WADs obtained with NUS Downloader and other PC applications. Thus, BlueDump can actually recreate the original WAD used to install certain title.
+
+=== Usage ===
+
+* Savedata: When you load BlueDump, you will see a menu with "00010000 - Disc Savedata", etc. If you want to backup EG: GH World Tour, to Disc Savedata (set arrow and press A) and then set the arrow on SXAP and press 1. An option menu will open, from there you can use the right and left arrow to switch between the functions because we want a backup now, select Backup Savedata and press A. Voilà, you now have a backup of your savedata for that game in sd:/BlueDump/Savedata/DISC SXAP.
+
+The same things applies if you want to backup savedata for a VC title: just go to "00010001 - Installed channel titles" (savedata can be installed on any Wii).
+
+* Titles: go to, for example, "00010001 - Installed channel titles" then set the arrow on like "4a4f4449 - Homebrew Channel". Press 1, select Backup to WAD and press A. The WAD is now in sd:/BlueDump/WAD.
+
+=== Thanks to ===
+
+*WiiPower, for helping out nicksasa.
+*TriiForce and FSToolBox projects (WiiPower and nicksasa).
+
+=== Changelog ===
+
+MOD v0.2 (August 15th, 2013 - DarkMatterCore):
+
+* Now using libruntimeiospatch by Excelsior to apply patches to the current IOS.
+* Fixed illegal FAT characters on dumped savegames. They are now replaced with an underscore (_).
+* Added full support for contents bigger than 45MB. The GetContent() function was completely rewritten to dump each regular content file in chunks of 16KB, which are read, encrypted and saved to the output WAD. Because of this, the encrypt_buffer() function is not used anymore in GetContent(), since we need to change the Initialization Vector (IV) for each chunk.
+* Other minor fixes and corrections.
+
+MOD v0.1 (August 1st, 2013 - DarkMatterCore):
+
+* Full hardware access through the HW_AHBPROT flag (must use HBC v1.1.0 or later!). The IOS patches applied include the "KillAntiSysTitleInstall" set from damysteryman, so the application is also fully compatible with the vWii mode available in Wii U.
+* Added an IOS selection screen at startup (you can select whether you want to use the full hardware access, or a patched IOS).
+* Full compatibility with USB storage devices and GCN controllers.
+* Ability to choose if you want to fakesign the WAD ticket and/or TMD before starting the dumping process (no secondary version needed anymore).
+* If you select to fakesign the WAD ticket, the application now wipes the console ID and the ECDH data from it; both of those can prevent a successful WAD installation on another Wii. It is also verified if the Common Key Index value (0x1F1) is set to 0x01 or 0x02; if so, it is changed to 0x00.
+* The certificate chain (cert.sys) is now embedded on the code, to avoid reading it every time from the NAND.
+* Complete overhaul in the name reading functions for channel banners and banner.bin file from savegames. Plus, the application now can also read names from installed DLCs.
+* The WAD footer is now added to every title dumped from the application. Its size is added to the WAD header @ 0x1C, too.
+* The content.map file is now read into memory once for every dumping process, instead of accessing it every time the application dumps a shared content.
+* Compatibility with content type 0x4001 (which is only present in DLCs, AFAIK).
+* Fixed a bug in GetContent() where the application would allocate memory for two different buffers with the same size, which could exceed the console memory limit if the content size was greater than ~22.5 MB. Now, a single memory buffer is used for all the dumping, padding and encrypting operations.
+* The pad_data_32() function is now called pad_data(). It uses a bool value to determine if the input buffer will be padded to a 16-byte (0x10) boundary, or a 64-byte boundary (0x40). To avoid memory problems, it now uses realloc() to change the size of the already-allocated input buffer, instead of allocating memory for a new buffer.
+* The decrypted memory buffer is now padded to a 16-byte boundary before encrypting. Then, the encrypted memory buffer is padded to a 64-byte boundary. That way, the WAD structure used by NUS Downloader can be easily recreated, with amazing results (just see it by yourself).
+* Before reading the internal name of a given title, it is now verified which type of title is it to use the appropiate function for its case. That way, the logfile won't be full of ISFS_Open() -106 errors when trying to read the banner.bin file for everything. lol
+* Added a switch case function to properly output the System Menu version in the browser screen (e.g. "v513" is now displayed as "v4.3U").
+* Ability to use the LEFT/RIGHT buttons in the browser screen (why didn't nicksasa add that...?).
+* Output font replaced with another that has full Unicode support. That way, the title names can be displayed properly if you have set your console in Spanish or a different language.
+* Compiled with the latest libogc, devkitPPC and libfat versions (as of August 1st, 2013: v1.8.12, r26 and v1.0.12, respectively).
+* Compatibility with the new WiiMote Plus (RVL-CNT-01-TR).
+
+Alpha 3:
+
+* Show IOS names (for example, IOS36).
+* Show IOS versions (for example, IOS 249 v18).
+* Disabled logging by default.
+* Code cleanup.
+* Creating folders correctly now if they don't exist.
+* Some more stuff I forgot.
+
+Alpha 2:
+
+* Backup savedata from VC/WiiWare and Disc games.
+* Restore savedata from VC/WiiWare and Disc games.
+* Backup title's to WAD (correctly signed, will only work on your own wii if you use the normal version!).
+
+Alpha 1:
+
+* Never released.</long_description>
+<ahb_access/>
+	</app>
