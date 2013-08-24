@@ -31,10 +31,10 @@ void waitforbuttonpress(u32 *out, u32 *outGC)
 	{
 		WPAD_ScanPads();
 		pressed = WPAD_ButtonsDown(0) | WPAD_ButtonsDown(1) | WPAD_ButtonsDown(2) | WPAD_ButtonsDown(3);
-
+		
 		PAD_ScanPads();
 		pressedGC = PAD_ButtonsDown(0) | PAD_ButtonsDown(1) | PAD_ButtonsDown(2) | PAD_ButtonsDown(3);
-
+		
 		if(pressed || pressedGC) 
 		{
 			if (pressedGC)
@@ -42,6 +42,7 @@ void waitforbuttonpress(u32 *out, u32 *outGC)
 				// Without waiting you can't select anything
 				usleep (20000);
 			}
+			
 			if (out) *out = pressed;
 			if (outGC) *outGC = pressedGC;
 			return;
@@ -99,7 +100,7 @@ void printheadline()
 	int rows, cols;
 	CON_GetMetrics(&cols, &rows);
 	
-	printf("BlueDump MOD v0.2.");
+	printf("BlueDump MOD v0.3.");
 	
 	char buf[64];
 	sprintf(buf, "IOS%u (v%u)", IOS_GetVersion(), IOS_GetRevision());
@@ -227,10 +228,7 @@ int ahbprot_menu()
 			waitforbuttonpress(&pressed, &pressedGC);
 			
 			/* A button */
-			if (pressed == WPAD_BUTTON_A || pressedGC == PAD_BUTTON_A)
-			{
-				break;
-			}
+			if (pressed == WPAD_BUTTON_A || pressedGC == PAD_BUTTON_A) break;
 			
 			/* B button */
 			if (pressed == WPAD_BUTTON_B || pressedGC == PAD_BUTTON_B)
@@ -298,7 +296,9 @@ u8 *get_ioslist(u32 *cnt)
 		printf("\t- ES_GetNumTitles: Error! (result = %d).\n", res);
 		return 0;
 	}
+	
 	buf = memalign(32, sizeof(u64) * tcnt);
+	
 	res = ES_GetTitles(buf, tcnt);
 	if(res < 0)
 	{
@@ -329,6 +329,7 @@ u8 *get_ioslist(u32 *cnt)
 			ioses[icnt - 1] = (u8)buf[i];
 		}
 	}
+	
 	free(buf);
 	qsort(ioses, icnt, 1, __u8Cmp);
 
@@ -347,12 +348,14 @@ int ios_selectionmenu(int default_ios)
 	int i;
 	for (i=0;i<ioscount;i++)
 	{
-		// Default to default_ios if found, else the loaded IOS
+		/* Default to default_ios if found, else the loaded IOS */
+		
 		if (list[i] == default_ios)
 		{
 			selection = i;
 			break;
 		}
+		
 		if (list[i] == IOS_GetVersion())
 		{
 			selection = i;
@@ -380,25 +383,28 @@ int ios_selectionmenu(int default_ios)
 			if (selection > 0)
 			{
 				selection--;
-			} else
-			{
+			} else {
 				selection = ioscount - 1;
 			}
 		}
+		
 		if (pressed == WPAD_BUTTON_RIGHT || pressedGC == PAD_BUTTON_RIGHT)
 		{
 			if (selection < ioscount -1	)
 			{
 				selection++;
-			} else
-			{
+			} else {
 				selection = 0;
 			}
 		}
+		
 		if (pressed == WPAD_BUTTON_A || pressedGC == PAD_BUTTON_A) break;
+		
 		if (pressed == WPAD_BUTTON_B || pressedGC == PAD_BUTTON_B) return 0;
+		
 		if (pressed == WPAD_BUTTON_HOME || pressedGC == PAD_BUTTON_START) Reboot();
 	}
+	
 	return list[selection];
 }
 
@@ -445,7 +451,6 @@ void Mount_Devices()
 	if (!SDmnt && !USBmnt)
 	{
 		printf("\nNo device detected. Good bye...");
-		sleep(2);
 		Reboot();
 	} else {
 		printf("\nPress A to use the SD Card.\n");
@@ -454,9 +459,18 @@ void Mount_Devices()
 		while(true)
 		{
 			waitforbuttonpress(&pressed, &pressedGC);
-			if (pressed == WPAD_BUTTON_A || pressedGC == PAD_BUTTON_A) isSD = true;
-			if (pressed == WPAD_BUTTON_B || pressedGC == PAD_BUTTON_B) isSD = false;
-			break;
+			
+			if (pressed == WPAD_BUTTON_A || pressedGC == PAD_BUTTON_A)
+			{
+				isSD = true;
+				break;
+			}
+			
+			if (pressed == WPAD_BUTTON_B || pressedGC == PAD_BUTTON_B)
+			{
+				isSD = false;
+				break;
+			}
 		}
 	}
 }
@@ -512,6 +526,7 @@ void logfile(const char *format, ...)
 
 void hexdump_log(void *d, int len)
 {
+#ifdef DEBUG
     u8 *data;
     int i, f, off;
     data = (u8*)d;
@@ -538,10 +553,12 @@ void hexdump_log(void *d, int len)
 		//logfile(" ");
     }		
     logfile("\n");
+#endif
 }
 
 void hex_key_dump(void *d, int len)
 {
+#ifdef DEBUG
 	u8 *data;
 	int i;
 	data = (u8*)d;
@@ -550,4 +567,5 @@ void hex_key_dump(void *d, int len)
 	{
 		logfile("%02x ", data[i]);
 	}
+#endif
 }
