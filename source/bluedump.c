@@ -33,6 +33,7 @@
 #define DIRENT_T_DIR 1
 
 #define ROOT_DIR "/title"
+#define DEVICE(x) ((x == 0) ? (isSD ? "sd" : "usb") : (isSD ? "SD" : "USB"))
 
 #define TYPE_SAVEDATA 	0
 #define TYPE_TITLE 		1
@@ -1023,8 +1024,11 @@ u32 GetContent(FILE *f, u64 id, u16 content, u16 index, u32 size)
 	}
 	
 	s32 ret = 0;
-	static u8 iv[16];
 	u32 i, pad, size2 = 0;
+	
+	static u8 iv[16];
+	memset(iv, 0, 16);
+	memcpy(iv, &index, 2);
 	
 	logfile("Writing...\n");
 	for (i = 0; i < size; i += blksize)
@@ -1047,23 +1051,10 @@ u32 GetContent(FILE *f, u64 id, u16 content, u16 index, u32 size)
 		}
 		
 		/* Save the last 16 bytes of the previous encrypted chunk to use them as the IV for the next one */
-		if (blksize < size - i)
+		if (i > 0)
 		{
 			memset(iv, 0, 16);
-			
-			if (i == 0)
-			{
-				memcpy(iv, &index, 2);
-			} else {
-				memcpy(iv, &(encryptedcontentbuf[blksize - 16]), 16);
-				
-				/*if (i == BLOCKSIZE)
-				{
-					logfile("IV for chunk #2: ");
-					hex_key_dump(iv, sizeof(iv));
-					logfile("\n");
-				}*/
-			}
+			memcpy(iv, &(encryptedcontentbuf[BLOCKSIZE - 16]), 16);
 		}
 		
 		aes_encrypt(iv, buffer, encryptedcontentbuf, blksize);
@@ -1310,12 +1301,7 @@ int isdir_device(char *path)
 
 s32 getdir_device(char *path, dirent_t **ent, u32 *cnt)
 {
-	if (isSD)
-	{
-		logfile("GETDIR_SD: path = '%s'.\n", path);
-	} else {
-		logfile("GETDIR_USB: path = '%s'.\n", path);
-	}
+	logfile("GETDIR_%s: path = '%s'.\n", DEVICE(1), path);
 	
 	u32 i = 0;
 	DIR *dip;
@@ -1343,12 +1329,7 @@ s32 getdir_device(char *path, dirent_t **ent, u32 *cnt)
 		return 0;
     }
 	
-	if (isSD)
-	{
-		logfile("SD DIR list of '%s':\n\n", path);
-	} else {
-		logfile("USB DIR list of '%s':\n\n", path);
-	}
+	logfile("%s DIR list of '%s':\n\n", DEVICE(1), path);
 	
     while ((dit = readdir(dip)) != NULL)
     {
@@ -1504,14 +1485,8 @@ s32 flash(char* source, char* destination)
 	printf("Flashing to '%s'.\n", destination);
 	logfile("Flashing to '%s'.\n", destination);
 	
-	if (isSD)
-	{
-		printf("SD file size = %u bytes.\n", filesize);
-		logfile("SD file size = %u bytes.\n", filesize);
-	} else {
-		printf("USB file size = %u bytes.\n", filesize);
-		logfile("USB file size = %u bytes.\n", filesize);
-	}
+	printf("%s file size = %u bytes.\n", DEVICE(1), filesize);
+	logfile("%s file size = %u bytes.\n", DEVICE(1), filesize);
 
 	ISFS_Delete(destination);
 	ISFS_CreateFile(destination, 0, 3, 3, 3);
@@ -1701,14 +1676,8 @@ bool writefolder(char *source, char *temp, char *destination, char *path_out, bo
 	
 	if(found != true)
 	{
-		if (isSD)
-		{
-			printf("Couldn't find the savedata on the SD card! Please extract the savedata first.\n");
-			logfile("Couldn't find the savedata on the SD card! Please extract the savedata first.\n");
-		} else {
-			printf("Couldn't find the savedata on the USB device! Please extract the savedata first.\n");
-			logfile("Couldn't find the savedata on the USB device! Please extract the savedata first.\n");
-		}
+		printf("Couldn't find the savedata on the %s! Please extract the savedata first.\n", ((isSD) ? "SD card" : "USB storage"));
+		logfile("Couldn't find the savedata on the %s!\n", ((isSD) ? "SD card" : "USB storage"));
 		sleep(3);
 		free(dir);
 		return false;
@@ -1810,50 +1779,24 @@ bool extract_savedata(u64 titleID)
 	
 	if(TITLE_UPPER(titleID) == 0x00010000)
 	{
-		if (isSD)
-		{
-			//sprintf(device_path, "sd:/BlueDump/Savedata/DISC %s", temp);
-			sprintf(device_path, "sd:/BlueDump/Savedata/DISC %s - %s", temp, RemoveIllegalCharacters(get_name(titleID, false)));
-			logfile("Savedata type: disc-based game.\n");
-			logfile("SD path is '%s'.\n", device_path);
-		} else {
-			//sprintf(device_path, "usb:/BlueDump/Savedata/DISC %s", temp);
-			sprintf(device_path, "usb:/BlueDump/Savedata/DISC %s - %s", temp, RemoveIllegalCharacters(get_name(titleID, false)));
-			logfile("Savedata type: disc-based game.\n");
-			logfile("USB path is '%s'.\n", device_path);
-		}
+		//sprintf(device_path, "%s:/BlueDump/Savedata/DISC %s", DEVICE(0), temp);
+		sprintf(device_path, "%s:/BlueDump/Savedata/DISC %s - %s", DEVICE(0), temp, RemoveIllegalCharacters(get_name(titleID, false)));
+		logfile("Savedata type: disc-based game.\n");
 	} else
 	if(TITLE_UPPER(titleID) == 0x00010001)
 	{
-		if (isSD)
-		{
-			//sprintf(device_path, "sd:/BlueDump/Savedata/CHAN %s", temp);
-			sprintf(device_path, "sd:/BlueDump/Savedata/CHAN %s - %s", temp, RemoveIllegalCharacters(get_name(titleID, false)));
-			logfile("Savedata type: downloaded channel title.\n");
-			logfile("SD path is '%s'.\n", device_path);
-		} else {
-			//sprintf(device_path, "usb:/BlueDump/Savedata/CHAN %s", temp);
-			sprintf(device_path, "usb:/BlueDump/Savedata/CHAN %s - %s", temp, RemoveIllegalCharacters(get_name(titleID, false)));
-			logfile("Savedata type: downloaded channel title.\n");
-			logfile("USB path is '%s'.\n", device_path);
-		}
+		//sprintf(device_path, "%s:/BlueDump/Savedata/CHAN %s", DEVICE(0), temp);
+		sprintf(device_path, "%s:/BlueDump/Savedata/CHAN %s - %s", DEVICE(0), temp, RemoveIllegalCharacters(get_name(titleID, false)));
+		logfile("Savedata type: downloaded channel title.\n");
 	} else
 	if(TITLE_UPPER(titleID) == 0x00010004)
 	{
-		if (isSD)
-		{
-			//sprintf(device_path, "sd:/BlueDump/Savedata/CHSV %s", temp);
-			sprintf(device_path, "sd:/BlueDump/Savedata/CHSV %s - %s", temp, RemoveIllegalCharacters(get_name(titleID, false)));
-			logfile("Savedata type: game that uses channel.\n");
-			logfile("SD path is '%s'.\n", device_path);
-		} else {
-			//sprintf(device_path, "usb:/BlueDump/Savedata/CHSV %s", temp);
-			sprintf(device_path, "usb:/BlueDump/Savedata/CHSV %s - %s", temp, RemoveIllegalCharacters(get_name(titleID, false)));
-			logfile("Savedata type: game that uses channel.\n");
-			logfile("USB path is '%s'.\n", device_path);
-		}
+		//sprintf(device_path, "%s:/BlueDump/Savedata/CHSV %s", DEVICE(0), temp);
+		sprintf(device_path, "%s:/BlueDump/Savedata/CHSV %s - %s", DEVICE(0), temp, RemoveIllegalCharacters(get_name(titleID, false)));
+		logfile("Savedata type: game that uses channel.\n");
 	}
 	
+	logfile("%s path is '%s'.\n", DEVICE(1), device_path);
 	success = dumpfolder(path, device_path);
 	sprintf(path, "/title/%08x/%08x/content/title.tmd", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
 	strcat(device_path, "/title.tmd");
@@ -1888,14 +1831,8 @@ bool install_savedata(u64 titleID)
 	sprintf(path, "/title/%08x/%08x/data", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
 	logfile("ISFS path is '%s'.\n", path);
 	
-	if (isSD)
-	{
-		sprintf(device_path, "sd:/BlueDump/Savedata");
-		logfile("SD path is '%s'.\n", device_path);
-	} else {
-		sprintf(device_path, "usb:/BlueDump/Savedata");
-		logfile("USB path is '%s'.\n", device_path);
-	}
+	sprintf(device_path, "%s:/BlueDump/Savedata", DEVICE(0));
+	logfile("%s path is '%s'.\n", DEVICE(1), device_path);
 	
 	success = writefolder(device_path, temp, path, path_out, false);
 	sprintf(path, "/title/%08x/%08x/content/title.tmd", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
@@ -2003,12 +1940,7 @@ void browser(char cpath[ISFS_MAXPATH + 1], dirent_t* ent, int cline, int lcnt)
 	resetscreen();
 	printheadline();
 	
-	if (isSD)
-	{
-		logfile("Using Wii NAND. Inserted device: SD Card.\n");
-	} else {
-		logfile("Using Wii NAND. Inserted device: USB Storage.\n");
-	}
+	logfile("Using Wii NAND. Inserted device: %s.\n", ((isSD) ? "SD Card" : "USB Storage"));
 	
 	printf("[1/Y] Dump Options  [A] Confirm/Enter Directory\n");
 	printf("[B] Cancel/Return to Parent Directory  [Home/Start] Exit\n\n");
@@ -2537,7 +2469,7 @@ void dump_menu(char *cpath, char *tmp, int cline, int lcnt, dirent_t *ent)
 	switch(selection)
 	{
 		case 0: // Backup savedata
-			if (((strcmp(cpath, "/title/00010000") == 0) && (strlen(cpath) == 15)) || ((strcmp(cpath, "/title/00010001") == 0) && (strlen(cpath) == 15)) || ((strcmp(cpath, "/title/00010004") == 0) && (strlen(cpath) == 15)))
+			if (ent[cline].function == TYPE_SAVEDATA || ent[cline].function == TYPE_TITLE || ent[cline].function == TYPE_GAMECHAN)
 			{
 				printf("\n\nBacking up savedata... \n");
 				logfile("Backing up savedata... \n");
@@ -2551,7 +2483,7 @@ void dump_menu(char *cpath, char *tmp, int cline, int lcnt, dirent_t *ent)
 			}
 			break;
 		case 1: // Restore savedata
-			if (((strcmp(cpath, "/title/00010000") == 0) && (strlen(cpath) == 15)) || ((strcmp(cpath, "/title/00010001") == 0) && (strlen(cpath) == 15)) || ((strcmp(cpath, "/title/00010004") == 0) && (strlen(cpath) == 15)))
+			if (ent[cline].function == TYPE_SAVEDATA || ent[cline].function == TYPE_TITLE || ent[cline].function == TYPE_GAMECHAN)
 			{
 				printf("\n\nRestoring savedata... \n");
 				logfile("Restoring savedata... \n");
@@ -2565,320 +2497,122 @@ void dump_menu(char *cpath, char *tmp, int cline, int lcnt, dirent_t *ent)
 			}
 			break;	
 		case 2: // Backup to WAD
-			logfile("Creating WAD...\n");
-			
-			for_tik = select_tik_forge();
-			for_tmd = select_tmd_forge();
-			
-			resetscreen();
-			printheadline();
-			
-			printf("Creating WAD...\n");
-			
-			if(ent[cline].function == TYPE_TITLE)
+			if (ent[cline].function == TYPE_SAVEDATA || ent[cline].function == TYPE_OTHER)
 			{
-				char testid[256];
-				
-				/* Workaround for HBC 1.0.7 - 1.1.0 */
-				if(strncmp(ent[cline].name, "AF1BF516", 8) == 0)
-				{
-					if (isSD)
-					{
-						sprintf(testid, "sd:/BlueDump/WAD/00010001-AF1BF516");
-					} else {
-						sprintf(testid, "usb:/BlueDump/WAD/00010001-AF1BF516");
-					}
-				} else {
-					char *temp;
-					u64 titleID;
-					titleID = TITLE_ID(0x00010001, strtoll(ent[cline].name, NULL, 16));
-					u32 low = TITLE_LOWER(titleID);
-					temp = allocate_memory(6);
-					memset(temp, 0, 6);
-					memcpy(temp, (char *)(&low), 4);
-					logfile("ID = %s.\n", temp);
-					
-					if (isSD)
-					{
-						sprintf(testid, "sd:/BlueDump/WAD/00010001-%s", temp);
-					} else {
-						sprintf(testid, "usb:/BlueDump/WAD/00010001-%s", temp);
-					}
-					
-					free(temp);
-				}
-				
-				if (for_tik && for_tmd)
-				{
-					strncat(testid, "_ftmd+ftik.wad", 14);
-					logfile("Path for dump = %s.\n", testid);
-					Wad_Dump(TITLE_ID(0x00010001, strtoll(ent[cline].name, NULL, 16)), testid, true, true);
-				} else
-				if (!for_tik && for_tmd)
-				{
-					strncat(testid, "_ftmd.wad", 9);
-					logfile("Path for dump = %s.\n", testid);
-					Wad_Dump(TITLE_ID(0x00010001, strtoll(ent[cline].name, NULL, 16)), testid, false, true);
-				} else
-				if (for_tik && !for_tmd)
-				{
-					strncat(testid, "_ftik.wad", 9);
-					logfile("Path for dump = %s.\n", testid);
-					Wad_Dump(TITLE_ID(0x00010001, strtoll(ent[cline].name, NULL, 16)), testid, true, false);
-				} else {
-					strncat(testid, ".wad", 4);
-					logfile("Path for dump = %s.\n", testid);
-					Wad_Dump(TITLE_ID(0x00010001, strtoll(ent[cline].name, NULL, 16)), testid, false, false);
-				}
-				
-				printf("WAD dump complete! Output file is: %s.\n", testid);
-				logfile("WAD dump complete!\n");
-			} else
-			if(ent[cline].function == TYPE_IOS)
-			{
-				char buf[20];
-				char testid[256];
-				
-				if (isSD)
-				{
-					sprintf(testid, "sd:/BlueDump/WAD/00000001-");
-				} else {
-					sprintf(testid, "usb:/BlueDump/WAD/00000001-");
-				}
-				
-				if(strncmp(ent[cline].name, "00000002", 8) == 0)
-				{
-					sprintf(buf, "SystemMenu%s", GetSysMenuVersion(get_version(TITLE_ID(0x00000001, strtoll(ent[cline].name, NULL, 16)))));
-				} else
-				if(strncmp(ent[cline].name, "00000100", 8) == 0)
-				{
-					sprintf(buf, "BCv%u", get_version(TITLE_ID(0x00000001, strtoll(ent[cline].name, NULL, 16))));
-				} else
-				if(strncmp(ent[cline].name, "00000101", 8) == 0)
-				{
-					sprintf(buf, "MIOSv%u", get_version(TITLE_ID(0x00000001, strtoll(ent[cline].name, NULL, 16))));
-				} else {
-					strncat(testid, "IOS", 6);
-					sprintf(buf, "%uv%u", (u32)strtol(ent[cline].name,NULL,16), get_version(TITLE_ID(0x00000001, strtoll(ent[cline].name, NULL, 16))));
-				}
-				
-				strncat(testid, buf, strlen(buf));
-				
-				if (for_tik && for_tmd)
-				{
-					strncat(testid, "_ftmd+ftik.wad", 14);
-					logfile("Path for dump = %s.\n", testid);
-					Wad_Dump(TITLE_ID(0x00000001, strtoll(ent[cline].name, NULL, 16)), testid, true, true);
-				} else
-				if (!for_tik && for_tmd)
-				{
-					strncat(testid, "_ftmd.wad", 9);
-					logfile("Path for dump = %s.\n", testid);
-					Wad_Dump(TITLE_ID(0x00000001, strtoll(ent[cline].name, NULL, 16)), testid, false, true);
-				} else
-				if (for_tik && !for_tmd)
-				{
-					strncat(testid, "_ftik.wad", 9);
-					logfile("Path for dump = %s.\n", testid);
-					Wad_Dump(TITLE_ID(0x00000001, strtoll(ent[cline].name, NULL, 16)), testid, true, false);
-				} else {
-					strncat(testid, ".wad", 4);
-					logfile("Path for dump = %s.\n", testid);
-					Wad_Dump(TITLE_ID(0x00000001, strtoll(ent[cline].name, NULL, 16)), testid, false, false);
-				}
-				
-				printf("WAD dump complete! Output file is: %s.\n", testid);
-				logfile("WAD dump complete!\n");
-			} else
-			if(ent[cline].function == TYPE_SYSTITLE)
-			{
-				char testid[256];
-				char *temp;
-				u64 titleID;
-				titleID = TITLE_ID(0x00010002, strtoll(ent[cline].name, NULL, 16));
-				u32 low = TITLE_LOWER(titleID);
-				temp = allocate_memory(6);
-				memset(temp, 0, 6);
-				memcpy(temp, (char *)(&low), 4);
-				logfile("ID = %s.\n", temp);
-				
-				if (isSD)
-				{
-					sprintf(testid, "sd:/BlueDump/WAD/00010002-%s", temp);
-				} else {
-					sprintf(testid, "usb:/BlueDump/WAD/00010002-%s", temp);
-				}
-				
-				free(temp);
-				
-				if (for_tik && for_tmd)
-				{
-					strncat(testid, "_ftmd+ftik.wad", 14);
-					logfile("Path for dump = %s.\n", testid);
-					Wad_Dump(TITLE_ID(0x00010002, strtoll(ent[cline].name, NULL, 16)), testid, true, true);
-				} else
-				if (!for_tik && for_tmd)
-				{
-					strncat(testid, "_ftmd.wad", 9);
-					logfile("Path for dump = %s.\n", testid);
-					Wad_Dump(TITLE_ID(0x00010002, strtoll(ent[cline].name, NULL, 16)), testid, false, true);
-				} else
-				if (for_tik && !for_tmd)
-				{
-					strncat(testid, "_ftik.wad", 9);
-					logfile("Path for dump = %s.\n", testid);
-					Wad_Dump(TITLE_ID(0x00010002, strtoll(ent[cline].name, NULL, 16)), testid, true, false);
-				} else {
-					strncat(testid, ".wad", 4);
-					logfile("Path for dump = %s.\n", testid);
-					Wad_Dump(TITLE_ID(0x00010002, strtoll(ent[cline].name, NULL, 16)), testid, false, false);
-				}
-				
-				printf("WAD dump complete! Output file is: %s.\n", testid);
-				logfile("WAD dump complete!\n");
-			} else
-			if(ent[cline].function == TYPE_GAMECHAN)
-			{
-				char testid[256];
-				char *temp;
-				u64 titleID;
-				titleID = TITLE_ID(0x00010004, strtoll(ent[cline].name, NULL, 16));
-				u32 low = TITLE_LOWER(titleID);
-				temp = allocate_memory(6);
-				memset(temp, 0, 6);
-				memcpy(temp, (char *)(&low), 4);
-				logfile("ID = %s.\n", temp);
-				
-				if (isSD)
-				{
-					sprintf(testid, "sd:/BlueDump/WAD/00010004-%s", temp);
-				} else {
-					sprintf(testid, "usb:/BlueDump/WAD/00010004-%s", temp);
-				}
-				
-				free(temp);
-				
-				if (for_tik && for_tmd)
-				{
-					strncat(testid, "_ftmd+ftik.wad", 14);
-					logfile("Path for dump = %s.\n", testid);
-					Wad_Dump(TITLE_ID(0x00010004, strtoll(ent[cline].name, NULL, 16)), testid, true, true);
-				} else
-				if (!for_tik && for_tmd)
-				{
-					strncat(testid, "_ftmd.wad", 9);
-					logfile("Path for dump = %s.\n", testid);
-					Wad_Dump(TITLE_ID(0x00010004, strtoll(ent[cline].name, NULL, 16)), testid, false, true);
-				} else
-				if (for_tik && !for_tmd)
-				{
-					strncat(testid, "_ftik.wad", 9);
-					logfile("Path for dump = %s.\n", testid);
-					Wad_Dump(TITLE_ID(0x00010004, strtoll(ent[cline].name, NULL, 16)), testid, true, false);
-				} else {
-					strncat(testid, ".wad", 4);
-					logfile("Path for dump = %s.\n", testid);
-					Wad_Dump(TITLE_ID(0x00010004, strtoll(ent[cline].name, NULL, 16)), testid, false, false);
-				}
-				
-				printf("WAD dump complete! Output file is: %s.\n", testid);
-				logfile("WAD dump complete!\n");
-			} else
-			if(ent[cline].function == TYPE_DLC)
-			{
-				char testid[256];
-				char *temp;
-				u64 titleID;
-				titleID = TITLE_ID(0x00010005, strtoll(ent[cline].name, NULL, 16));
-				u32 low = TITLE_LOWER(titleID);
-				temp = allocate_memory(6);
-				memset(temp, 0, 6);
-				memcpy(temp, (char *)(&low), 4);
-				logfile("ID = %s.\n", temp);
-				
-				if (isSD)
-				{
-					sprintf(testid, "sd:/BlueDump/WAD/00010005-%s", temp);
-				} else {
-					sprintf(testid, "usb:/BlueDump/WAD/00010005-%s", temp);
-				}
-				
-				free(temp);
-				
-				if (for_tik && for_tmd)
-				{
-					strncat(testid, "_ftmd+ftik.wad", 14);
-					logfile("Path for dump = %s.\n", testid);
-					Wad_Dump(TITLE_ID(0x00010005, strtoll(ent[cline].name, NULL, 16)), testid, true, true);
-				} else
-				if (!for_tik && for_tmd)
-				{
-					strncat(testid, "_ftmd.wad", 9);
-					logfile("Path for dump = %s.\n", testid);
-					Wad_Dump(TITLE_ID(0x00010005, strtoll(ent[cline].name, NULL, 16)), testid, false, true);
-				} else
-				if (for_tik && !for_tmd)
-				{
-					strncat(testid, "_ftik.wad", 9);
-					logfile("Path for dump = %s.\n", testid);
-					Wad_Dump(TITLE_ID(0x00010005, strtoll(ent[cline].name, NULL, 16)), testid, true, false);
-				} else {
-					strncat(testid, ".wad", 4);
-					logfile("Path for dump = %s.\n", testid);
-					Wad_Dump(TITLE_ID(0x00010005, strtoll(ent[cline].name, NULL, 16)), testid, false, false);
-				}
-				
-				printf("WAD dump complete! Output file is: %s.\n", testid);
-				logfile("WAD dump complete!\n");
-			} else
-			if(ent[cline].function == TYPE_HIDDEN)
-			{
-				char testid[256];
-				char *temp;
-				u64 titleID;
-				titleID = TITLE_ID(0x00010008, strtoll(ent[cline].name, NULL, 16));
-				u32 low = TITLE_LOWER(titleID);
-				temp = allocate_memory(6);
-				memset(temp, 0, 6);
-				memcpy(temp, (char *)(&low), 4);
-				logfile("ID = %s.\n", temp);
-				
-				if (isSD)
-				{
-					sprintf(testid, "sd:/BlueDump/WAD/00010008-%s", temp);
-				} else {
-					sprintf(testid, "usb:/BlueDump/WAD/00010008-%s", temp);
-				}
-				
-				free(temp);
-				
-				if (for_tik && for_tmd)
-				{
-					strncat(testid, "_ftmd+ftik.wad", 14);
-					logfile("Path for dump = %s.\n", testid);
-					Wad_Dump(TITLE_ID(0x00010008, strtoll(ent[cline].name, NULL, 16)), testid, true, true);
-				} else
-				if (!for_tik && for_tmd)
-				{
-					strncat(testid, "_ftmd.wad", 9);
-					logfile("Path for dump = %s.\n", testid);
-					Wad_Dump(TITLE_ID(0x00010008, strtoll(ent[cline].name, NULL, 16)), testid, false, true);
-				} else
-				if (for_tik && !for_tmd)
-				{
-					strncat(testid, "_ftik.wad", 9);
-					logfile("Path for dump = %s.\n", testid);
-					Wad_Dump(TITLE_ID(0x00010008, strtoll(ent[cline].name, NULL, 16)), testid, true, false);
-				} else {
-					strncat(testid, ".wad", 4);
-					logfile("Path for dump = %s.\n", testid);
-					Wad_Dump(TITLE_ID(0x00010008, strtoll(ent[cline].name, NULL, 16)), testid, false, false);
-				}
-				
-				printf("WAD dump complete! Output file is: %s.\n", testid);
-				logfile("WAD dump complete!\n");
-			} else {
 				printf("This is not a title! Use the savedata functions for this.\n");
+			} else {
+				logfile("Creating WAD...\n");
+				
+				for_tik = select_tik_forge();
+				for_tmd = select_tmd_forge();
+				
+				resetscreen();
+				printheadline();
+				printf("Creating WAD...\n");
+				
+				u64 titleID;
+				char dump_path[256];
+				
+				switch (ent[cline].function)
+				{
+					case TYPE_IOS:
+						titleID = TITLE_ID(0x00000001, strtoll(ent[cline].name, NULL, 16));
+						break;
+					case TYPE_TITLE:
+						titleID = TITLE_ID(0x00010001, strtoll(ent[cline].name, NULL, 16));
+						break;
+					case TYPE_SYSTITLE:
+						titleID = TITLE_ID(0x00010002, strtoll(ent[cline].name, NULL, 16));
+						break;
+					case TYPE_GAMECHAN:
+						titleID = TITLE_ID(0x00010004, strtoll(ent[cline].name, NULL, 16));
+						break;
+					case TYPE_DLC:
+						titleID = TITLE_ID(0x00010005, strtoll(ent[cline].name, NULL, 16));
+						break;
+					case TYPE_HIDDEN:
+						titleID = TITLE_ID(0x00010008, strtoll(ent[cline].name, NULL, 16));
+						break;
+					default:
+						break;
+				}
+				
+				u32 low = TITLE_LOWER(titleID);
+				
+				if (ent[cline].function == TYPE_TITLE || ent[cline].function == TYPE_SYSTITLE || ent[cline].function == TYPE_GAMECHAN || ent[cline].function == TYPE_DLC || ent[cline].function == TYPE_HIDDEN)
+				{
+					/* Workaround for HBC 1.0.7 - 1.1.0 */
+					if (low != 0xAF1BF516)
+					{
+						char *temp = allocate_memory(6);
+						memset(temp, 0, 6);
+						memcpy(temp, (char *)(&low), 4);
+						logfile("ID = %s.\n", temp);
+						
+						if (ent[cline].function == TYPE_HIDDEN)
+						{
+							if (strncmp(ent[cline].name, "48414b", 6) == 0)
+							{
+								sprintf(dump_path, "%s:/BlueDump/WAD/EULA v%u - %s", DEVICE(0), get_version(titleID), temp);
+							} else
+							if (strncmp(ent[cline].name, "48414c", 6) == 0)
+							{
+								sprintf(dump_path, "%s:/BlueDump/WAD/RgnSel v%u - %s", DEVICE(0), get_version(titleID), temp);
+							} else {
+								sprintf(dump_path, "%s:/BlueDump/WAD/00010008-%s v%u", DEVICE(0), temp, get_version(titleID));
+							}
+						} else {
+							sprintf(dump_path, "%s:/BlueDump/WAD/%s v%u - %s", DEVICE(0), RemoveIllegalCharacters(get_name(titleID, false)), get_version(titleID), temp);
+						}
+						
+						free(temp);
+					} else {
+						sprintf(dump_path, "%s:/BlueDump/WAD/Homebrew Channel - AF1BF516", DEVICE(0));
+					}
+				} else
+				if (ent[cline].function == TYPE_IOS)
+				{
+					if (low == 0x00000002)
+					{
+						sprintf(dump_path, "%s:/BlueDump/WAD/System Menu %s", DEVICE(0), GetSysMenuVersion(get_version(titleID)));
+					} else
+					if (low == 0x00000100)
+					{
+						sprintf(dump_path, "%s:/BlueDump/WAD/BC v%u", DEVICE(0), get_version(titleID));
+					} else
+					if (low == 0x00000101)
+					{
+						sprintf(dump_path, "%s:/BlueDump/WAD/MIOS v%u", DEVICE(0), get_version(titleID));
+					} else {
+						sprintf(dump_path, "%s:/BlueDump/WAD/IOS%u v%u", DEVICE(0), (u32)strtol(ent[cline].name,NULL,16), get_version(titleID));
+					}
+				}
+				
+				if (for_tik && for_tmd)
+				{
+					strncat(dump_path, " (ftmd+ftik).wad", 16);
+					logfile("Path for dump = %s.\n", dump_path);
+					Wad_Dump(titleID, dump_path, true, true);
+				} else
+				if (!for_tik && for_tmd)
+				{
+					strncat(dump_path, " (ftmd).wad", 11);
+					logfile("Path for dump = %s.\n", dump_path);
+					Wad_Dump(titleID, dump_path, false, true);
+				} else
+				if (for_tik && !for_tmd)
+				{
+					strncat(dump_path, " (ftik).wad", 11);
+					logfile("Path for dump = %s.\n", dump_path);
+					Wad_Dump(titleID, dump_path, true, false);
+				} else {
+					strncat(dump_path, ".wad", 4);
+					logfile("Path for dump = %s.\n", dump_path);
+					Wad_Dump(titleID, dump_path, false, false);
+				}
+				
+				logfile("WAD dump complete!\n");
+				printf("WAD dump complete! Output file:\t\n%s", dump_path);
 			}
 			break;
 		default:
@@ -3013,7 +2747,7 @@ void bluedump_loop()
 		/* Dump options */
 		if (pressed == WPAD_BUTTON_1 || pressedGC == PAD_BUTTON_Y)
 		{
-			if (lcnt != 0) 
+			if (lcnt != 0 && strlen(cpath) == 15)
 			{
 				dump_menu(cpath, tmp, cline, lcnt, ent);
 			}
