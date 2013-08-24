@@ -2287,8 +2287,9 @@ s32 Wad_Dump(u64 id, char *path, bool ftik, bool ftmd)
 	printf("Adding footer... ");
 	logfile("Adding footer... ");
 	footer_size = read_isfs(footer_path, &footer_buf);
-	fwrite(footer_buf, 1, footer_size, wadout);
 	header->footer_len = footer_size;
+	if ((footer_size % 64) != 0) footer_size = pad_data(footer_buf, footer_size, false);
+	fwrite(footer_buf, 1, footer_size, wadout);
 	free(footer_buf);
 	printf("done.\n");
 	logfile("done.\n");
@@ -2515,9 +2516,6 @@ void dump_menu(char *cpath, char *tmp, int cline, int lcnt, dirent_t *ent)
 				
 				switch (ent[cline].function)
 				{
-					case TYPE_IOS:
-						titleID = TITLE_ID(0x00000001, strtoll(ent[cline].name, NULL, 16));
-						break;
 					case TYPE_TITLE:
 						titleID = TITLE_ID(0x00010001, strtoll(ent[cline].name, NULL, 16));
 						break;
@@ -2533,7 +2531,8 @@ void dump_menu(char *cpath, char *tmp, int cline, int lcnt, dirent_t *ent)
 					case TYPE_HIDDEN:
 						titleID = TITLE_ID(0x00010008, strtoll(ent[cline].name, NULL, 16));
 						break;
-					default:
+					default: // TYPE_IOS
+						titleID = TITLE_ID(0x00000001, strtoll(ent[cline].name, NULL, 16));
 						break;
 				}
 				
@@ -2612,7 +2611,7 @@ void dump_menu(char *cpath, char *tmp, int cline, int lcnt, dirent_t *ent)
 				}
 				
 				logfile("WAD dump complete!\n");
-				printf("WAD dump complete! Output file:\t\n%s", dump_path);
+				printf("WAD dump complete! Output file:\n\t%s", dump_path);
 			}
 			break;
 		default:
