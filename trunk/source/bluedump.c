@@ -56,7 +56,6 @@ u8 commonkey[16] = { 0xeb, 0xe4, 0x2a, 0x22, 0x5e, 0x85, 0x93, 0xe4, 0x48, 0xd9,
 
 bool MakeDir(const char *Path)
 {
-	logfile("makedir path = %s\n", Path);
 	// Open Target Folder
 	DIR* dir = opendir(Path);
 
@@ -164,27 +163,6 @@ void check_not_0(size_t ret, char *error)
 		Unmount_Devices();
 		Reboot();
 	}	
-}
-
-void encrypt_buffer(u16 index, u8 *source, u8 *dest, u32 len)
-{
-	static u8 iv[16];
-	
-	if (!source)
-	{
-		printf("\nencrypt_buffer: invalid source parameter.\n");
-		logfile("\nencrypt_buffer: invalid source parameter.\n");
-	}
-	
-	if (!dest)
-	{
-		printf("\nencrypt_buffer: invalid dest parameter.\n");
-		logfile("\nencrypt_buffer: invalid dest parameter.\n");
-	}
-	
-	memset(iv, 0, 16);
-	memcpy(iv, &index, 2);
-	aes_encrypt(iv, source, dest, len);
 }
 
 s32 __FileCmp(const void *a, const void *b)
@@ -352,7 +330,7 @@ s32 getdir_info(char *path, dirent_t **ent, u32 *cnt)
 	return 0;
 }
 
-char *read_name_from_banner_app(u64 titleid)
+char *read_name_from_banner_app(u64 titleid, bool get_description)
 {
 	s32 ret, cfd;
 	u32 num, cnt;
@@ -408,10 +386,7 @@ char *read_name_from_banner_app(u64 titleid)
 			{
 				int i = 0, length = 0;
 				
-				while (buffer[0xF1 + i*2] != 0x00)
-				{
-					i++;
-				}
+				while (buffer[0xF1 + i*2] != 0x00) i++;
 				
 				length = i;
 				i = 0;
@@ -431,6 +406,43 @@ char *read_name_from_banner_app(u64 titleid)
 				{
 					out[i] = (char) buffer[0xF1 + i*2];
 					i++;
+				}
+				
+				if (get_description)
+				{
+					i = 0;
+					length = 0;
+					
+					while(buffer[0x11B + i*2] != 0x00) i++;
+					
+					length = i;
+					i = 0;
+					char *out2 = allocate_memory(length+10);
+					if(out2 == NULL)
+					{
+						//printf("Error allocating memory for DLC description.\n");
+						logfile("Error allocating memory for DLC description.\n");
+						free(buffer);
+						free(list);
+						return out;
+					}
+					
+					memset(out2, 0x00, length+10);
+					
+					while (buffer[0x11B + i*2] != 0x00)
+					{
+						out2[i] = (char) buffer[0x11B + i*2];
+						i++;
+					}
+					
+					if ((strlen(out2) != 0) && (strcmp(out2, " ") != 0))
+					{
+						strcat(out, " [");
+						strcat(out, out2);
+						strcat(out, "]");
+					}
+					
+					free(out2);
 				}
 				
 				free(buffer);
@@ -483,10 +495,7 @@ char *read_name_from_banner_bin(u64 titleid, bool get_description)
 		
 		ISFS_Close(cfd);	
 		
-		while(buffer[0x21 + i*2] != 0x00)
-		{
-			i++;
-		}
+		while(buffer[0x21 + i*2] != 0x00) i++;
 		
 		length = i;
 		i = 0;
@@ -536,9 +545,9 @@ char *read_name_from_banner_bin(u64 titleid, bool get_description)
 			
 			if ((strlen(out2) != 0) && (strcmp(out2, " ") != 0))
 			{
-				strcat(out, " (");
+				strcat(out, " [");
 				strcat(out, out2);
-				strcat(out, ")");
+				strcat(out, "]");
 			}
 			
 			free(out2);
@@ -660,9 +669,9 @@ char *read_dlc_name(u64 titleid, bool get_description)
 					
 					if ((strlen(out2) != 0) && (strcmp(out2, " ") != 0))
 					{
-						strcat(out, " (");
+						strcat(out, " [");
 						strcat(out, out2);
-						strcat(out, ")");
+						strcat(out, "]");
 					}
 					
 					free(out2);
@@ -694,7 +703,7 @@ char *get_name(u64 titleid, bool get_description)
 	{
 		temp = read_dlc_name(titleid, get_description);
 	} else {
-		temp = read_name_from_banner_app(titleid);
+		temp = read_name_from_banner_app(titleid, get_description);
 		if (temp == NULL)
 		{
 			temp = read_name_from_banner_bin(titleid, get_description);
@@ -744,17 +753,17 @@ u32 pad_data(u8 *ptr, u32 len, bool pad_16)
 
 u32 read_isfs(char *path, u8 **out)
 {
-	fstats *status;
-	s32 ret;
 	u32 size;
-	s32 fd;
+	s32 ret, fd;
+	fstats *status;
 	
 	fd = ISFS_Open(path, ISFS_OPEN_READ);
 	if (fd < 0)
 	{
 		//printf("ISFS_Open for '%s' returned %d.\n", path, fd);
 		logfile("ISFS_Open for '%s' returned %d.\n", path, fd);
-		return 0;
+		Unmount_Devices();
+		Reboot();
 	}
 	
 	status = allocate_memory(sizeof(fstats));
@@ -763,8 +772,8 @@ u32 read_isfs(char *path, u8 **out)
 		//printf("Error allocating memory for status.\n"); 
 		logfile("Error allocating memory for status.\n"); 
 		ISFS_Close(fd);
-		Unmount_Devices(); 
-		Reboot(); 
+		Unmount_Devices();
+		Reboot();
 	}
 	
 	ret = ISFS_GetFileStats(fd, status);
@@ -774,7 +783,8 @@ u32 read_isfs(char *path, u8 **out)
 		logfile("ISFS_GetFileStats(fd) returned %d.\n", ret);
 		ISFS_Close(fd);
 		free(status);
-		return 0;
+		Unmount_Devices();
+		Reboot();
 	}
 	
 	u32 fullsize = status->file_length;
@@ -783,15 +793,15 @@ u32 read_isfs(char *path, u8 **out)
 	u8 *out2 = allocate_memory(fullsize);
 	if(out2 == NULL) 
 	{ 
-		//printf("Error allocating memory for out2.\n");
-		logfile("\nError allocating memory for out2.\n");
+		//printf("Error allocating memory for out.\n");
+		logfile("\nError allocating memory for out.\n");
 		free(status);
 		ISFS_Close(fd);
-		return 0;
+		Unmount_Devices();
+		Reboot();
 	}
 	
-	u32 restsize = status->file_length;
-	u32 writeindex = 0;
+	u32 writeindex = 0, restsize = status->file_length;
 	
 	while (restsize > 0)
 	{
@@ -808,11 +818,11 @@ u32 read_isfs(char *path, u8 **out)
 			//printf("\nISFS_Read(%d, %d) returned %d.\n", fd, size, ret);
 			logfile("\nISFS_Read(%d, %d) returned %d.\n", fd, size, ret);
 			free(status);
-			ISFS_Close(fd);
-			return 0;
+			Unmount_Devices();
+			Reboot();
 		}
 		
-		writeindex = writeindex + size;
+		writeindex += size;
 		restsize -= size;
 	}
 	
@@ -895,20 +905,24 @@ void forge_tik(signed_blob *s_tik)
 	logfile("done.\n");
 }
 
-u32 GetTMD(FILE *f, u64 id, signed_blob **tmd, bool forgetmd)
+void GetTMD(FILE *f, u64 id, signed_blob **tmd, bool forgetmd)
 {
 	char path[ISFS_MAXPATH];
 	u8 *buffer;
 	
-	u32 size;
-	u32 size2;
+	u32 size = 0;
 	
 	sprintf(path, "/title/%08x/%08x/content/title.tmd", TITLE_UPPER(id), TITLE_LOWER(id));
 	
 	logfile("TMD path is '%s'.\n", path);
 	size = read_isfs(path, &buffer);
-	size2 = pad_data(buffer, size, false);
-	logfile("Padded TMD size = %u.\n", size2);
+	header->tmd_len = size;
+	
+	if ((size % 64) != 0)
+	{
+		size = pad_data(buffer, size, false);
+		logfile("Padded TMD size = %u.\n", size);
+	}
 	
 	/* Fakesign TMD if the user chose to */
 	if (forgetmd)
@@ -917,26 +931,29 @@ u32 GetTMD(FILE *f, u64 id, signed_blob **tmd, bool forgetmd)
 	}
 	
 	/* Write to output WAD */
-	fwrite(buffer, 1, size2, f);
+	fwrite(buffer, 1, size, f);
 	
 	*tmd = (signed_blob *)buffer;
-	return size;
 }	
 
-u32 GetTicket(FILE *f, u64 id, signed_blob **tik, bool forgetik)
+void GetTicket(FILE *f, u64 id, signed_blob **tik, bool forgetik)
 {
 	char path[ISFS_MAXPATH];
 	u8 *buffer;
 	
 	u32 size;
-	u32 size2;
 	
 	sprintf(path, "/ticket/%08x/%08x.tik", TITLE_UPPER(id), TITLE_LOWER(id));
 	
 	logfile("Ticket path is '%s'.\n", path);
 	size = read_isfs(path, &buffer);
-	size2 = pad_data(buffer, size, false);
-	logfile("Padded Ticket size = %u.\n", size2);
+	header->tik_len = size;
+	
+	if ((size % 64) != 0)
+	{
+		size = pad_data(buffer, size, false);
+		logfile("Padded Ticket size = %u.\n", size);
+	}
 	
 	/* Fakesign ticket if the user chose to */
 	if (forgetik)
@@ -952,10 +969,9 @@ u32 GetTicket(FILE *f, u64 id, signed_blob **tik, bool forgetik)
 	}
 	
 	/* Write to output WAD */
-	fwrite(buffer, 1, size2, f);
+	fwrite(buffer, 1, size, f);
 	
 	*tik = (signed_blob *)buffer;
-	return size;
 }	
 
 u32 GetCerts(FILE *f)
@@ -968,20 +984,8 @@ u32 GetCerts(FILE *f)
 		Reboot();
 	}
 	
-	u8 *buffer = (u8*)memalign(32, 2560);
-	if (buffer == NULL)
-	{
-		//printf("Certs: out of memory.");
-		logfile("Certs: out of memory.");
-		Unmount_Devices();
-		Reboot();
-	}
+	fwrite(cert_sys, 1, cert_sys_size, f);
 	
-	logfile("Certs size = %u.\n", cert_sys_size);
-	
-	memcpy(buffer, cert_sys, cert_sys_size);
-	fwrite(buffer, 1, cert_sys_size, f);
-	free(buffer);
 	return cert_sys_size;
 }
 
@@ -1094,76 +1098,6 @@ u32 GetContent(FILE *f, u64 id, u16 content, u16 index, u32 size)
 	return size2;
 }
 
-/*u32 GetContent(FILE *f, u64 id, u16 content, u16 index)
-{
-	// Code slightly modified to avoid allocating more space than what is actually available
-	// That means, only a single buffer is used now: buf
-	// Works fine, and actually fixes some dumping problems (like freezes or code dumps)
-	
-	u8 *buf;
-	u32 size;
-	char path[ISFS_MAXPATH];
-	
-	sprintf(path, "/title/%08x/%08x/content/%08x.app", TITLE_UPPER(id), TITLE_LOWER(id), content);
-	logfile("Regular content path is '%s'.\n", path);
-	printf("Adding regular content %08x.app... ", content);
-	
-	logfile("Reading... ");
-	size = read_isfs(path, &buf);
-	if (size == 0)
-	{
-		printf("\nReading content failed, size = 0.\n");
-		logfile("\nReading content failed, size = 0.\n");
-		Unmount_Devices();
-		Reboot();
-	}
-	
-	logfile("done.\nPadding decrypted data to 16-byte boundary... ");
-	
-	if ((size % 16) != 0)
-	{
-		// Pad data to a 16-byte boundary. Necessary for the encryption process
-		size = pad_data(buf, size, true);
-		logfile("done. New size: %u bytes.\n", size);
-	} else {
-		logfile("not needed.\n");
-	}
-	
-	encrypt_buffer(index, buf, buf, size);
-	
-	logfile("Padding encrypted data to 64-byte boundary... ");
-	if ((size % 64) != 0)
-	{
-		// Pad data to a 64-byte boundary. Necessary for the WAD alignment
-		size = pad_data(buf, size, false);
-		logfile("done. New size: %u bytes.\n", size);
-	} else {
-		logfile("not needed.\n");
-	}
-	
-	logfile("Writing... ");
-	u32 writeindex = 0;
-	u32 restsize = size;
-	while (restsize > 0)
-	{
-		if (restsize >= SD_BLOCKSIZE)
-		{
-			fwrite(&(buf[writeindex]), 1, SD_BLOCKSIZE, f);
-			restsize = restsize - SD_BLOCKSIZE;
-			writeindex = writeindex + SD_BLOCKSIZE;
-		} else {
-			fwrite(&(buf[writeindex]), 1, restsize, f);
-			restsize = 0;
-		}
-	}
-	logfile("done. Content added successfully.\n");
-
-	free(buf);
-	header->data_len += size;
-	printf("done.\n");
-	return size;
-}*/
-
 void *GetContentMap(size_t *cm_size)
 {
 	s32 fd, ret;
@@ -1243,7 +1177,11 @@ void GetSharedContent(FILE *f, u16 index, u8* hash, map_entry_t *cm, u32 element
 				Reboot(); 
 			}
 			
-			encrypt_buffer(index, shared_buf, encryptedcontentbuf, shared_size);
+			static u8 iv[16];
+			memset(iv, 0, 16);
+			memcpy(iv, &index, 2);
+			aes_encrypt(iv, shared_buf, encryptedcontentbuf, shared_size);
+			
 			free(shared_buf);
 			
 			if ((shared_size % 64) != 0)
@@ -1676,8 +1614,8 @@ bool writefolder(char *source, char *temp, char *destination, char *path_out, bo
 	
 	if(found != true)
 	{
-		printf("Couldn't find the savedata on the %s! Please extract the savedata first.\n", ((isSD) ? "SD card" : "USB storage"));
-		logfile("Couldn't find the savedata on the %s!\n", ((isSD) ? "SD card" : "USB storage"));
+		printf("Couldn't find the savedata on the %s! Please extract the savedata first.\n", (isSD ? "SD card" : "USB storage"));
+		logfile("Couldn't find the savedata on the %s!\n", (isSD ? "SD card" : "USB storage"));
 		sleep(3);
 		free(dir);
 		return false;
@@ -1798,6 +1736,8 @@ bool extract_savedata(u64 titleID)
 	
 	logfile("%s path is '%s'.\n", DEVICE(1), device_path);
 	success = dumpfolder(path, device_path);
+	
+	/* Dump the title.tmd file */
 	sprintf(path, "/title/%08x/%08x/content/title.tmd", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
 	strcat(device_path, "/title.tmd");
 	logfile("path = %s.\n", path);
@@ -1933,159 +1873,162 @@ char *GetSysMenuVersion(u16 version)
 	}
 }
 
+char ascii_id[5];
+bool ascii = false;
+
+char *GetASCII(u32 name)
+{
+	snprintf(ascii_id, 5, "%s", (char *)(&name));
+	return ascii_id;
+}
+
 void browser(char cpath[ISFS_MAXPATH + 1], dirent_t* ent, int cline, int lcnt)
 {
-	logfile("\n\nBROWSER: ");
 	int i;
 	resetscreen();
 	printheadline();
 	
-	logfile("Using Wii NAND. Inserted device: %s.\n", ((isSD) ? "SD Card" : "USB Storage"));
+	logfile("\n\nBROWSER: Using Wii NAND. Inserted device: %s.\nPath: %s\n", (isSD ? "SD Card" : "USB Storage"), cpath);
 	
-	printf("[1/Y] Dump Options  [A] Confirm/Enter Directory\n");
+	printf("[1/Y] Dump Options  [A] Confirm/Enter Directory  [2/Y] Change view mode\n");
 	printf("[B] Cancel/Return to Parent Directory  [Home/Start] Exit\n\n");
 	
 	printf("Path: %s\n\n", cpath);
-	logfile("Path: %s\n", cpath);
 	
 	if (lcnt == 0)
 	{
 		printf("No files/directories found!");
 		printf("\nPress B to go back to the previous dir.");
-		goto end;
-	}
-	
-	for(i = (cline / 16)*16; i < lcnt && i < (cline / 16)*16+16; i++)
-	{
-		if (strncmp(cpath, "/title", 6) == 0 && strlen(cpath) == 6)
+	} else {
+		for(i = (cline / 16)*16; i < lcnt && i < (cline / 16)*16+16; i++)
 		{
-			if (strncmp(ent[i].name, "00010000", 8) == 0)
+			if (strncmp(cpath, "/title", 6) == 0 && strlen(cpath) == 6)
 			{
-				printf("%s %-12s - Disc Savedata\n", (i == cline ? "->" : "  "), ent[i].name);
+				if (strncmp(ent[i].name, "00010000", 8) == 0)
+				{
+					printf("%s 00010000 - Disc Savedata\n", (i == cline ? "->" : "  "));
+				} else
+				if (strncmp(ent[i].name, "00010001", 8) == 0)
+				{
+					printf("%s 00010001 - Installed Channel Titles\n", (i == cline ? "->" : "  "));
+				} else
+				if (strncmp(ent[i].name, "00000001", 8) == 0)
+				{
+					printf("%s 00000001 - System Titles\n", (i == cline ? "->" : "  "));
+				} else
+				if (strncmp(ent[i].name, "00010002", 8) == 0)
+				{
+					printf("%s 00010002 - System Channel Titles\n", (i == cline ? "->" : "  "));
+				} else
+				if (strncmp(ent[i].name, "00010004", 8) == 0)
+				{
+					printf("%s 00010004 - Games that use Channels (Channel+Save)\n", (i == cline ? "->" : "  "));
+				} else
+				if (strncmp(ent[i].name, "00010005", 8) == 0)
+				{
+					printf("%s 00010005 - Downloadable Game Content (DLC)\n", (i == cline ? "->" : "  "));
+				} else
+				if (strncmp(ent[i].name, "00010008", 8) == 0)
+				{
+					printf("%s 00010008 - Hidden Channels\n", (i == cline ? "->" : "  "));
+				}
 			} else
-			if (strncmp(ent[i].name, "00010001", 8) == 0)
+			if (strncmp(cpath, "/title/00000001", 15) == 0 && strlen(cpath) == 15)
 			{
-				printf("%s %-12s - Installed Channel Titles\n", (i == cline ? "->" : "  "), ent[i].name);
+				if (strncmp(ent[i].name, "00000001", 8) == 0)
+				{
+					printf("%s 00000001 - BOOT2\n", (i == cline ? "->" : "  "));
+				} else
+				if (strncmp(ent[i].name, "00000002", 8) == 0)
+				{
+					printf("%s 00000002 - System Menu %s\n", (i == cline ? "->" : "  "), GetSysMenuVersion(get_version(TITLE_ID(0x00000001, 0x00000002))));
+				} else
+				if (strncmp(ent[i].name, "00000100", 8) == 0)
+				{
+					printf("%s 00000100 - BC v%u\n", (i == cline ? "->" : "  "), get_version(TITLE_ID(0x00000001, 0x00000100)));
+				} else
+				if (strncmp(ent[i].name, "00000101", 8) == 0)
+				{
+					printf("%s 00000101 - MIOS v%u\n", (i == cline ? "->" : "  "), get_version(TITLE_ID(0x00000001, 0x00000101)));
+				} else
+				if (strncmp(ent[i].name, "00000000", 8) == 0)
+				{
+					printf("%s 00000000 - Unknown System Title\n", (i == cline ? "->" : "  "));
+				} else {
+					printf("%s %s - IOS%u v%u\n", (i == cline ? "->" : "  "), ent[i].name, (u32)strtol(ent[i].name, NULL, 16), get_version(TITLE_ID(0x00000001, strtoll(ent[i].name, NULL, 16))));
+				}		
 			} else
-			if (strncmp(ent[i].name, "00000001", 8) == 0)
+			if (strncmp(cpath, "/title/00010008", 15) == 0 && strlen(cpath) == 15)
 			{
-				printf("%s %-12s - System Titles\n", (i == cline ? "->" : "  "), ent[i].name);
+				if (strncmp(ent[i].name, "48414b45", 8) == 0)
+				{
+					printf("%s %s - EULA (USA) v%u\n", (i == cline ? "->" : "  "), (ascii ? GetASCII(strtoll(ent[i].name, NULL, 16)) : ent[i].name), get_version(TITLE_ID(0x00010008, 0x48414b45)));
+				} else
+				if (strncmp(ent[i].name, "48414b4a", 8) == 0)
+				{
+					printf("%s %s - EULA (JAP) v%u\n", (i == cline ? "->" : "  "), (ascii ? GetASCII(strtoll(ent[i].name, NULL, 16)) : ent[i].name), get_version(TITLE_ID(0x00010008, 0x48414b4a)));
+				} else
+				if (strncmp(ent[i].name, "48414b4b", 8) == 0)
+				{
+					printf("%s %s - EULA (KOR) v%u\n", (i == cline ? "->" : "  "), (ascii ? GetASCII(strtoll(ent[i].name, NULL, 16)) : ent[i].name), get_version(TITLE_ID(0x00010008, 0x48414b4b)));
+				} else
+				if (strncmp(ent[i].name, "48414b50", 8) == 0)
+				{
+					printf("%s %s - EULA (EUR) v%u\n", (i == cline ? "->" : "  "), (ascii ? GetASCII(strtoll(ent[i].name, NULL, 16)) : ent[i].name), get_version(TITLE_ID(0x00010008, 0x48414b50)));
+				} else
+				if (strncmp(ent[i].name, "48414c45", 8) == 0)
+				{
+					printf("%s %s - Region Select (USA) v%u\n", (i == cline ? "->" : "  "), (ascii ? GetASCII(strtoll(ent[i].name, NULL, 16)) : ent[i].name), get_version(TITLE_ID(0x00010008, 0x48414c45)));
+				} else
+				if (strncmp(ent[i].name, "48414c4a", 8) == 0)
+				{
+					printf("%s %s - Region Select (JAP) v%u\n", (i == cline ? "->" : "  "), (ascii ? GetASCII(strtoll(ent[i].name, NULL, 16)) : ent[i].name), get_version(TITLE_ID(0x00010008, 0x48414c4a)));
+				} else
+				if (strncmp(ent[i].name, "48414c4b", 8) == 0)
+				{
+					printf("%s %s - Region Select (KOR) v%u\n", (i == cline ? "->" : "  "), (ascii ? GetASCII(strtoll(ent[i].name, NULL, 16)) : ent[i].name), get_version(TITLE_ID(0x00010008, 0x48414c4b)));
+				} else
+				if (strncmp(ent[i].name, "48414c50", 8) == 0)
+				{
+					printf("%s %s - Region Select (EUR) v%u\n", (i == cline ? "->" : "  "), (ascii ? GetASCII(strtoll(ent[i].name, NULL, 16)) : ent[i].name), get_version(TITLE_ID(0x00010008, 0x48414c50)));
+				} else
+				if (strncmp(ent[i].name, "44564458", 8) == 0)
+				{
+					printf("%s %s - DVDx (pre-4.2 fix)\n", (i == cline ? "->" : "  "), (ascii ? GetASCII(strtoll(ent[i].name, NULL, 16)) : ent[i].name));
+				} else
+				if (strncmp(ent[i].name, "44495343", 8) == 0)
+				{
+					printf("%s %s - DVDx (new version)\n", (i == cline ? "->" : "  "), (ascii ? GetASCII(strtoll(ent[i].name, NULL, 16)) : ent[i].name));
+				} else {
+					printf("%s %s - Unknown Hidden Channel\n", (i == cline ? "->" : "  "), (ascii ? GetASCII(strtoll(ent[i].name, NULL, 16)) : ent[i].name));
+				}
 			} else
-			if (strncmp(ent[i].name, "00010002", 8) == 0)
+			if(ent[i].function == TYPE_SAVEDATA)
 			{
-				printf("%s %-12s - System Channel Titles\n", (i == cline ? "->" : "  "), ent[i].name);
+				printf("%s %s - %s\n", (i == cline ? "->" : "  "), (ascii ? GetASCII(strtoll(ent[i].name, NULL, 16)) : ent[i].name), get_name(TITLE_ID(0x00010000, strtoll(ent[i].name, NULL, 16)), true));
 			} else
-			if (strncmp(ent[i].name, "00010004", 8) == 0)
+			if(ent[i].function == TYPE_TITLE)
 			{
-				printf("%s %-12s - Games that use Channels (Channel+Save)\n", (i == cline ? "->" : "  "), ent[i].name);
+				printf("%s %s - %s\n", (i == cline ? "->" : "  "), (ascii ? GetASCII(strtoll(ent[i].name, NULL, 16)) : ent[i].name), get_name(TITLE_ID(0x00010001, strtoll(ent[i].name, NULL, 16)), true));
 			} else
-			if (strncmp(ent[i].name, "00010005", 8) == 0)
+			if(ent[i].function == TYPE_SYSTITLE)
 			{
-				printf("%s %-12s - Downloadable Game Content (DLC)\n", (i == cline ? "->" : "  "), ent[i].name);
+				printf("%s %s - %s\n", (i == cline ? "->" : "  "), (ascii ? GetASCII(strtoll(ent[i].name, NULL, 16)) : ent[i].name), get_name(TITLE_ID(0x00010002, strtoll(ent[i].name, NULL, 16)), false));
 			} else
-			if (strncmp(ent[i].name, "00010008", 8) == 0)
+			if(ent[i].function == TYPE_GAMECHAN)
 			{
-				printf("%s %-12s - Hidden Channels\n", (i == cline ? "->" : "  "), ent[i].name);
+				printf("%s %s - %s\n", (i == cline ? "->" : "  "), (ascii ? GetASCII(strtoll(ent[i].name, NULL, 16)) : ent[i].name), get_name(TITLE_ID(0x00010004, strtoll(ent[i].name, NULL, 16)), true));
+			} else
+			if(ent[i].function == TYPE_DLC)
+			{
+				printf("%s %s - %s\n", (i == cline ? "->" : "  "), (ascii ? GetASCII(strtoll(ent[i].name, NULL, 16)) : ent[i].name), get_name(TITLE_ID(0x00010005, strtoll(ent[i].name, NULL, 16)), true));
+			} else
+			if(ent[i].function == TYPE_OTHER)
+			{
+				printf("%s %-12s - %s\n", (i == cline ? "->" : "  "), ent[i].name, (ent[i].type == DIRENT_T_DIR ? "Directory" : "File"));
 			}
-		} else
-		if (strncmp(cpath, "/title/00000001", 15) == 0 && strlen(cpath) == 15)
-		{
-			if (strncmp(ent[i].name, "00000001", 8) == 0)
-			{
-				printf("%s %-12s - %s\n", (i == cline ? "->" : "  "), ent[i].name, "BOOT2");
-			} else
-			if (strncmp(ent[i].name, "00000002", 8) == 0)
-			{
-				printf("%s %-12s - %s %s\n", (i == cline ? "->" : "  "), ent[i].name, "System Menu", GetSysMenuVersion(get_version(TITLE_ID(0x00000001, strtoll(ent[i].name, NULL, 16)))));
-			} else
-			if (strncmp(ent[i].name, "00000100", 8) == 0)
-			{
-				printf("%s %-12s - %s v%u\n", (i == cline ? "->" : "  "), ent[i].name, "BC", get_version(TITLE_ID(0x00000001, strtoll(ent[i].name, NULL, 16))));
-			} else
-			if (strncmp(ent[i].name, "00000101", 8) == 0)
-			{
-				printf("%s %-12s - %s v%u\n", (i == cline ? "->" : "  "), ent[i].name, "MIOS", get_version(TITLE_ID(0x00000001, strtoll(ent[i].name, NULL, 16))));
-			} else
-			if (strncmp(ent[i].name, "00000000", 8) == 0)
-			{
-				printf("%s %-12s - %s\n", (i == cline ? "->" : "  "), ent[i].name, "Unknown System Title");
-			} else
-			{
-				printf("%s %-12s - %s%u v%u\n", (i == cline ? "->" : "  "), ent[i].name, "IOS", (u32)strtol(ent[i].name,NULL,16), get_version(TITLE_ID(0x00000001, strtoll(ent[i].name, NULL, 16))));
-			}		
-		} else
-		if (strncmp(cpath, "/title/00010008", 15) == 0 && strlen(cpath) == 15)
-		{
-			if (strncmp(ent[i].name, "48414b45", 8) == 0)
-			{
-				printf("%s %-12s - %s v%u\n", (i == cline ? "->" : "  "), ent[i].name, "EULA (USA)", get_version(TITLE_ID(0x00010008, strtoll(ent[i].name, NULL, 16))));
-			} else
-			if (strncmp(ent[i].name, "48414b4a", 8) == 0)
-			{
-				printf("%s %-12s - %s v%u\n", (i == cline ? "->" : "  "), ent[i].name, "EULA (JAP)", get_version(TITLE_ID(0x00010008, strtoll(ent[i].name, NULL, 16))));
-			} else
-			if (strncmp(ent[i].name, "48414b4b", 8) == 0)
-			{
-				printf("%s %-12s - %s v%u\n", (i == cline ? "->" : "  "), ent[i].name, "EULA (KOR)", get_version(TITLE_ID(0x00010008, strtoll(ent[i].name, NULL, 16))));
-			} else
-			if (strncmp(ent[i].name, "48414b50", 8) == 0)
-			{
-				printf("%s %-12s - %s v%u\n", (i == cline ? "->" : "  "), ent[i].name, "EULA (EUR)", get_version(TITLE_ID(0x00010008, strtoll(ent[i].name, NULL, 16))));
-			} else
-			if (strncmp(ent[i].name, "48414c45", 8) == 0)
-			{
-				printf("%s %-12s - %s v%u\n", (i == cline ? "->" : "  "), ent[i].name, "Region Select (USA)", get_version(TITLE_ID(0x00010008, strtoll(ent[i].name, NULL, 16))));
-			} else
-			if (strncmp(ent[i].name, "48414c4a", 8) == 0)
-			{
-				printf("%s %-12s - %s v%u\n", (i == cline ? "->" : "  "), ent[i].name, "Region Select (JAP)", get_version(TITLE_ID(0x00010008, strtoll(ent[i].name, NULL, 16))));
-			} else
-			if (strncmp(ent[i].name, "48414c4b", 8) == 0)
-			{
-				printf("%s %-12s - %s v%u\n", (i == cline ? "->" : "  "), ent[i].name, "Region Select (KOR)", get_version(TITLE_ID(0x00010008, strtoll(ent[i].name, NULL, 16))));
-			} else
-			if (strncmp(ent[i].name, "48414c50", 8) == 0)
-			{
-				printf("%s %-12s - %s v%u\n", (i == cline ? "->" : "  "), ent[i].name, "Region Select (EUR)", get_version(TITLE_ID(0x00010008, strtoll(ent[i].name, NULL, 16))));
-			} else
-			if (strncmp(ent[i].name, "44564458", 8) == 0)
-			{
-				printf("%s %-12s - %s\n", (i == cline ? "->" : "  "), ent[i].name, "DVDx (pre-4.2 fix)");
-			} else
-			if (strncmp(ent[i].name, "44495343", 8) == 0)
-			{
-				printf("%s %-12s - %s\n", (i == cline ? "->" : "  "), ent[i].name, "DVDx (new version)");
-			} else {
-				printf("%s %-12s - %s\n", (i == cline ? "->" : "  "), ent[i].name, "Unknown Hidden Channel");
-			}
-		} else
-		if(ent[i].function == TYPE_SAVEDATA)
-		{
-			printf("%s %-12s - %s\n", (i == cline ? "->" : "  "), ent[i].name, get_name(TITLE_ID(0x00010000, strtoll(ent[i].name, NULL, 16)), true));
-		} else
-		if(ent[i].function == TYPE_TITLE)
-		{
-			printf("%s %-12s - %s\n", (i == cline ? "->" : "  "), ent[i].name, get_name(TITLE_ID(0x00010001, strtoll(ent[i].name, NULL, 16)), true));
-		} else
-		if(ent[i].function == TYPE_SYSTITLE)
-		{
-			printf("%s %-12s - %s\n", (i == cline ? "->" : "  "), ent[i].name, get_name(TITLE_ID(0x00010002, strtoll(ent[i].name, NULL, 16)), false));
-		} else
-		if(ent[i].function == TYPE_GAMECHAN)
-		{
-			printf("%s %-12s - %s\n", (i == cline ? "->" : "  "), ent[i].name, get_name(TITLE_ID(0x00010004, strtoll(ent[i].name, NULL, 16)), true));
-		} else
-		if(ent[i].function == TYPE_DLC)
-		{
-			printf("%s %-12s - %s\n", (i == cline ? "->" : "  "), ent[i].name, get_name(TITLE_ID(0x00010005, strtoll(ent[i].name, NULL, 16)), true));
-		} else
-		if(ent[i].function == TYPE_OTHER)
-		{
-			printf("%s %-12s - %s\n", (i == cline ? "->" : "  "), ent[i].name, (ent[i].type == DIRENT_T_DIR ? "Directory" : "File"));
 		}
 	}
-end:
-	printf("\n");
 }
 
 void make_header()
@@ -2207,9 +2150,9 @@ s32 Wad_Dump(u64 id, char *path, bool ftik, bool ftmd)
 	logfile("Reading Ticket... ");
 	if (!ftik)
 	{
-		header->tik_len = GetTicket(wadout, id, &p_tik, false);
+		GetTicket(wadout, id, &p_tik, false);
 	} else {
-		header->tik_len = GetTicket(wadout, id, &p_tik, true);
+		GetTicket(wadout, id, &p_tik, true);
 	}
 	check_not_0(header->tik_len, "Error getting Ticket.\n");
 	printf("done.\n");
@@ -2220,9 +2163,9 @@ s32 Wad_Dump(u64 id, char *path, bool ftik, bool ftmd)
 	logfile("Reading TMD... ");
 	if (!ftmd)
 	{
-		header->tmd_len = GetTMD(wadout, id, &p_tmd, false);
+		GetTMD(wadout, id, &p_tmd, false);
 	} else {
-		header->tmd_len = GetTMD(wadout, id, &p_tmd, true);
+		GetTMD(wadout, id, &p_tmd, true);
 	}
 	check_not_0(header->tmd_len, "Error getting TMD.\n");
 	printf("done.\n");
@@ -2267,16 +2210,13 @@ s32 Wad_Dump(u64 id, char *path, bool ftik, bool ftmd)
 			default:
 				printf("Unknown content type: 0x%04x. Aborting mission...\n", type);
 				logfile("Unknown content type: 0x%04x. Aborting mission...\n", type);
-				sleep(3);
+				sleep(2);
 				Unmount_Devices();
 				Reboot();
 				break;
 		}
 		
-		if (cnt == 0)
-		{
-			sprintf(footer_path, "/title/%08x/%08x/content/%08x.app", TITLE_UPPER(id), TITLE_LOWER(id), content->cid);
-		}
+		if (cnt == 0) sprintf(footer_path, "/title/%08x/%08x/content/%08x.app", TITLE_UPPER(id), TITLE_LOWER(id), content->cid);
 	}
 	
 	free(p_tmd);
@@ -2303,8 +2243,8 @@ s32 Wad_Dump(u64 id, char *path, bool ftik, bool ftmd)
 	logfile("done.\nHeader hexdump:\n");
 	hexdump_log(header, 0x20);
 	
-	fclose(wadout);	
 	free(header);
+	fclose(wadout);
 	return 0;
 }
 
@@ -2354,7 +2294,10 @@ u64 copy_id_sd_save(char *path, bool disc, bool channel)
 	return titleID;
 }
 
-bool select_tik_forge()
+bool for_tik = false;
+bool for_tmd = false;
+
+void select_forge()
 {
 	u32 pressed;
 	u32 pressedGC;
@@ -2368,25 +2311,19 @@ bool select_tik_forge()
 		
 		if (pressed == WPAD_BUTTON_A || pressedGC == PAD_BUTTON_A)
 		{
+			for_tik = true;
 			logfile("forge_tik set to true.\n");
-			return true;
+			break;
 		}
 		
 		if (pressed == WPAD_BUTTON_B || pressedGC == PAD_BUTTON_B)
 		{
+			for_tik = false;
 			logfile("forge_tik set to false.\n");
-			return false;
+			break;
 		}
 	}
 	
-	return false;
-}
-
-bool select_tmd_forge()
-{
-	u32 pressed;
-	u32 pressedGC;
-
 	printf("\nDo you want to fakesign the TMD?");
 	printf("\n[A] Yes    [B] No (recommended)\n");
 	
@@ -2396,18 +2333,18 @@ bool select_tmd_forge()
 		
 		if (pressed == WPAD_BUTTON_A || pressedGC == PAD_BUTTON_A)
 		{
+			for_tmd = true;
 			logfile("forge_tmd set to true.\n");
-			return true;
+			break;
 		}
 		
 		if (pressed == WPAD_BUTTON_B || pressedGC == PAD_BUTTON_B)
 		{
+			for_tmd = false;
 			logfile("forge_tmd set to false.\n");
-			return false;
+			break;
 		}
 	}
-	
-	return false;
 }
 
 void dump_menu(char *cpath, char *tmp, int cline, int lcnt, dirent_t *ent)
@@ -2415,9 +2352,7 @@ void dump_menu(char *cpath, char *tmp, int cline, int lcnt, dirent_t *ent)
 	u32 pressed;
 	u32 pressedGC;
 	
-	bool for_tik = false;
-	bool for_tmd = false;
-	char some[500];
+	bool go_back = false;
 	char *options[3] = { "Backup Savedata >", "< Restore Savedata >" , "< Backup to WAD"};
 	int selection = 0;
 	
@@ -2452,174 +2387,174 @@ void dump_menu(char *cpath, char *tmp, int cline, int lcnt, dirent_t *ent)
 			}
 		}
 		
-		if (pressed == WPAD_BUTTON_A || pressedGC == PAD_BUTTON_A) break;
-		if (pressed == WPAD_BUTTON_B || pressedGC == PAD_BUTTON_B) goto end;
-	}
-	
-	strcpy(tmp, cpath);
-	if(strcmp(cpath, "/") != 0)
-	{
-		sprintf(some, "%s/%s", tmp, ent[cline].name);
-	} else
-	{				
-		sprintf(some, "/%s", ent[cline].name);
-	}
-	
-	
-	logfile("cline: %s.\n", some);
-	switch(selection)
-	{
-		case 0: // Backup savedata
-			if (ent[cline].function == TYPE_SAVEDATA || ent[cline].function == TYPE_TITLE || ent[cline].function == TYPE_GAMECHAN)
-			{
-				printf("\n\nBacking up savedata... \n");
-				logfile("Backing up savedata... \n");
-				u64 titleID = copy_id(some);
-				extract_savedata(titleID);
-				printf("done .\n");
-				logfile("done.\n");
-			} else {
-				printf("\n\nThe title you chose has no savedata!\n");
-				printf("Use the WAD function for this.");
-			}
+		if (pressed == WPAD_BUTTON_B || pressedGC == PAD_BUTTON_B)
+		{
+			go_back = true;
 			break;
-		case 1: // Restore savedata
-			if (ent[cline].function == TYPE_SAVEDATA || ent[cline].function == TYPE_TITLE || ent[cline].function == TYPE_GAMECHAN)
-			{
-				printf("\n\nRestoring savedata... \n");
-				logfile("Restoring savedata... \n");
-				u64 titleID2 = copy_id(some);
-				install_savedata(titleID2);
-				printf("done.\n");
-				logfile("done.\n");
-			} else {
-				printf("\n\nThe title you chose has no savedata!\n");
-				printf("Use the WAD function for this.");
-			}
-			break;	
-		case 2: // Backup to WAD
-			if (ent[cline].function == TYPE_SAVEDATA || ent[cline].function == TYPE_OTHER)
-			{
-				printf("This is not a title! Use the savedata functions for this.\n");
-			} else {
-				logfile("Creating WAD...\n");
-				
-				for_tik = select_tik_forge();
-				for_tmd = select_tmd_forge();
-				
-				resetscreen();
-				printheadline();
-				printf("Creating WAD...\n");
-				
-				u64 titleID;
-				char dump_path[256];
-				
-				switch (ent[cline].function)
+		}
+		
+		if (pressed == WPAD_BUTTON_A || pressedGC == PAD_BUTTON_A) break;
+	}
+	
+	if (!go_back)
+	{
+		char some[500];
+		strcpy(tmp, cpath);
+		if(strcmp(cpath, "/") != 0)
+		{
+			sprintf(some, "%s/%s", tmp, ent[cline].name);
+		} else {				
+			sprintf(some, "/%s", ent[cline].name);
+		}
+		
+		u64 titleID;
+		
+		logfile("cline: %s.\n", some);
+		switch(selection)
+		{
+			case 0: // Backup savedata
+				if (ent[cline].function == TYPE_SAVEDATA || ent[cline].function == TYPE_TITLE || ent[cline].function == TYPE_GAMECHAN)
 				{
-					case TYPE_TITLE:
-						titleID = TITLE_ID(0x00010001, strtoll(ent[cline].name, NULL, 16));
-						break;
-					case TYPE_SYSTITLE:
-						titleID = TITLE_ID(0x00010002, strtoll(ent[cline].name, NULL, 16));
-						break;
-					case TYPE_GAMECHAN:
-						titleID = TITLE_ID(0x00010004, strtoll(ent[cline].name, NULL, 16));
-						break;
-					case TYPE_DLC:
-						titleID = TITLE_ID(0x00010005, strtoll(ent[cline].name, NULL, 16));
-						break;
-					case TYPE_HIDDEN:
-						titleID = TITLE_ID(0x00010008, strtoll(ent[cline].name, NULL, 16));
-						break;
-					default: // TYPE_IOS
-						titleID = TITLE_ID(0x00000001, strtoll(ent[cline].name, NULL, 16));
-						break;
+					printf("\n\nBacking up savedata... \n");
+					logfile("Backing up savedata... \n");
+					titleID = copy_id(some);
+					extract_savedata(titleID);
+					printf("done .\n");
+					logfile("done.\n");
+				} else {
+					printf("\n\nThe title you chose has no savedata!\n");
+					printf("Use the WAD function for this.");
 				}
-				
-				u32 low = TITLE_LOWER(titleID);
-				
-				if (ent[cline].function == TYPE_TITLE || ent[cline].function == TYPE_SYSTITLE || ent[cline].function == TYPE_GAMECHAN || ent[cline].function == TYPE_DLC || ent[cline].function == TYPE_HIDDEN)
+				break;
+			case 1: // Restore savedata
+				if (ent[cline].function == TYPE_SAVEDATA || ent[cline].function == TYPE_TITLE || ent[cline].function == TYPE_GAMECHAN)
 				{
-					/* Workaround for HBC 1.0.7 - 1.1.0 */
-					if (low != 0xAF1BF516)
+					printf("\n\nRestoring savedata... \n");
+					logfile("Restoring savedata... \n");
+					titleID = copy_id(some);
+					install_savedata(titleID);
+					printf("done.\n");
+					logfile("done.\n");
+				} else {
+					printf("\n\nThe title you chose has no savedata!\n");
+					printf("Use the WAD function for this.");
+				}
+				break;	
+			case 2: // Backup to WAD
+				if (ent[cline].function == TYPE_SAVEDATA || ent[cline].function == TYPE_OTHER)
+				{
+					printf("This is not a title! Use the savedata functions for this.\n");
+				} else {
+					logfile("Creating WAD...\n");
+					
+					select_forge();
+					
+					resetscreen();
+					printheadline();
+					printf("Creating WAD...\n");
+					
+					char dump_path[256];
+					
+					switch (ent[cline].function)
 					{
-						char *temp = allocate_memory(6);
-						memset(temp, 0, 6);
-						memcpy(temp, (char *)(&low), 4);
-						logfile("ID = %s.\n", temp);
-						
-						if (ent[cline].function == TYPE_HIDDEN)
+						case TYPE_TITLE:
+							titleID = TITLE_ID(0x00010001, strtoll(ent[cline].name, NULL, 16));
+							break;
+						case TYPE_SYSTITLE:
+							titleID = TITLE_ID(0x00010002, strtoll(ent[cline].name, NULL, 16));
+							break;
+						case TYPE_GAMECHAN:
+							titleID = TITLE_ID(0x00010004, strtoll(ent[cline].name, NULL, 16));
+							break;
+						case TYPE_DLC:
+							titleID = TITLE_ID(0x00010005, strtoll(ent[cline].name, NULL, 16));
+							break;
+						case TYPE_HIDDEN:
+							titleID = TITLE_ID(0x00010008, strtoll(ent[cline].name, NULL, 16));
+							break;
+						default: // TYPE_IOS
+							titleID = TITLE_ID(0x00000001, strtoll(ent[cline].name, NULL, 16));
+							break;
+					}
+					
+					u32 low = TITLE_LOWER(titleID);
+					
+					if (ent[cline].function == TYPE_TITLE || ent[cline].function == TYPE_SYSTITLE || ent[cline].function == TYPE_GAMECHAN || ent[cline].function == TYPE_DLC || ent[cline].function == TYPE_HIDDEN)
+					{
+						/* Workaround for HBC 1.0.7 - 1.1.0 */
+						if (low != 0xAF1BF516)
 						{
-							if (strncmp(ent[cline].name, "48414b", 6) == 0)
+							if (ent[cline].function == TYPE_HIDDEN)
 							{
-								sprintf(dump_path, "%s:/BlueDump/WAD/EULA v%u - %s", DEVICE(0), get_version(titleID), temp);
-							} else
-							if (strncmp(ent[cline].name, "48414c", 6) == 0)
-							{
-								sprintf(dump_path, "%s:/BlueDump/WAD/RgnSel v%u - %s", DEVICE(0), get_version(titleID), temp);
+								if (strncmp(ent[cline].name, "48414b", 6) == 0)
+								{
+									sprintf(dump_path, "%s:/BlueDump/WAD/EULA v%u - %s", DEVICE(0), get_version(titleID), GetASCII(low));
+								} else
+								if (strncmp(ent[cline].name, "48414c", 6) == 0)
+								{
+									sprintf(dump_path, "%s:/BlueDump/WAD/RgnSel v%u - %s", DEVICE(0), get_version(titleID), GetASCII(low));
+								} else {
+									sprintf(dump_path, "%s:/BlueDump/WAD/00010008-%s v%u", DEVICE(0), GetASCII(low), get_version(titleID));
+								}
 							} else {
-								sprintf(dump_path, "%s:/BlueDump/WAD/00010008-%s v%u", DEVICE(0), temp, get_version(titleID));
+								sprintf(dump_path, "%s:/BlueDump/WAD/%s v%u - %s", DEVICE(0), RemoveIllegalCharacters(get_name(titleID, false)), get_version(titleID), GetASCII(low));
 							}
 						} else {
-							sprintf(dump_path, "%s:/BlueDump/WAD/%s v%u - %s", DEVICE(0), RemoveIllegalCharacters(get_name(titleID, false)), get_version(titleID), temp);
+							sprintf(dump_path, "%s:/BlueDump/WAD/Homebrew Channel - AF1BF516", DEVICE(0));
 						}
-						
-						free(temp);
-					} else {
-						sprintf(dump_path, "%s:/BlueDump/WAD/Homebrew Channel - AF1BF516", DEVICE(0));
-					}
-				} else
-				if (ent[cline].function == TYPE_IOS)
-				{
-					if (low == 0x00000002)
-					{
-						sprintf(dump_path, "%s:/BlueDump/WAD/System Menu %s", DEVICE(0), GetSysMenuVersion(get_version(titleID)));
 					} else
-					if (low == 0x00000100)
+					if (ent[cline].function == TYPE_IOS)
 					{
-						sprintf(dump_path, "%s:/BlueDump/WAD/BC v%u", DEVICE(0), get_version(titleID));
-					} else
-					if (low == 0x00000101)
-					{
-						sprintf(dump_path, "%s:/BlueDump/WAD/MIOS v%u", DEVICE(0), get_version(titleID));
-					} else {
-						sprintf(dump_path, "%s:/BlueDump/WAD/IOS%u v%u", DEVICE(0), (u32)strtol(ent[cline].name,NULL,16), get_version(titleID));
+						if (low == 0x00000002)
+						{
+							sprintf(dump_path, "%s:/BlueDump/WAD/System Menu %s", DEVICE(0), GetSysMenuVersion(get_version(titleID)));
+						} else
+						if (low == 0x00000100)
+						{
+							sprintf(dump_path, "%s:/BlueDump/WAD/BC v%u", DEVICE(0), get_version(titleID));
+						} else
+						if (low == 0x00000101)
+						{
+							sprintf(dump_path, "%s:/BlueDump/WAD/MIOS v%u", DEVICE(0), get_version(titleID));
+						} else {
+							sprintf(dump_path, "%s:/BlueDump/WAD/IOS%u v%u", DEVICE(0), (u32)strtol(ent[cline].name,NULL,16), get_version(titleID));
+						}
 					}
+					
+					if (for_tik && for_tmd)
+					{
+						strncat(dump_path, " (ftmd+ftik).wad", 16);
+						logfile("Path for dump = %s.\n", dump_path);
+						Wad_Dump(titleID, dump_path, true, true);
+					} else
+					if (!for_tik && for_tmd)
+					{
+						strncat(dump_path, " (ftmd).wad", 11);
+						logfile("Path for dump = %s.\n", dump_path);
+						Wad_Dump(titleID, dump_path, false, true);
+					} else
+					if (for_tik && !for_tmd)
+					{
+						strncat(dump_path, " (ftik).wad", 11);
+						logfile("Path for dump = %s.\n", dump_path);
+						Wad_Dump(titleID, dump_path, true, false);
+					} else {
+						strncat(dump_path, ".wad", 4);
+						logfile("Path for dump = %s.\n", dump_path);
+						Wad_Dump(titleID, dump_path, false, false);
+					}
+					
+					logfile("WAD dump complete!\n");
+					printf("WAD dump complete! Output file:\n\n\t%s", dump_path);
 				}
-				
-				if (for_tik && for_tmd)
-				{
-					strncat(dump_path, " (ftmd+ftik).wad", 16);
-					logfile("Path for dump = %s.\n", dump_path);
-					Wad_Dump(titleID, dump_path, true, true);
-				} else
-				if (!for_tik && for_tmd)
-				{
-					strncat(dump_path, " (ftmd).wad", 11);
-					logfile("Path for dump = %s.\n", dump_path);
-					Wad_Dump(titleID, dump_path, false, true);
-				} else
-				if (for_tik && !for_tmd)
-				{
-					strncat(dump_path, " (ftik).wad", 11);
-					logfile("Path for dump = %s.\n", dump_path);
-					Wad_Dump(titleID, dump_path, true, false);
-				} else {
-					strncat(dump_path, ".wad", 4);
-					logfile("Path for dump = %s.\n", dump_path);
-					Wad_Dump(titleID, dump_path, false, false);
-				}
-				
-				logfile("WAD dump complete!\n");
-				printf("WAD dump complete! Output file:\n\t%s", dump_path);
-			}
-			break;
-		default:
-			break;
+				break;
+			default:
+				break;
+		}
+		
+		sleep(3);
 	}
-	
-	sleep(3);
-end:
+
 	browser(cpath, ent, cline, lcnt);
 }
 
@@ -2630,7 +2565,7 @@ void bluedump_loop()
 	u32 pressedGC;
 	
 	reset_log();
-	logfile("BlueDump MOD v0.1 - Logfile.\n");
+	logfile("BlueDump MOD v0.4 - Logfile.\n");
 	logfile("SDmnt(%d), USBmnt(%d), isSD(%d).\n\n", SDmnt, USBmnt, isSD);
 	
 	/* Read the content.map file here to avoid reading it at a later time */
@@ -2642,6 +2577,7 @@ void bluedump_loop()
 		Unmount_Devices();
 		Reboot();
 	}
+	
 	content_map_items = content_map_size/sizeof(map_entry_t);
 	
 	char tmp[ISFS_MAXPATH + 1];
@@ -2685,7 +2621,7 @@ void bluedump_loop()
 		/* Navigate left */
 		if (pressed == WPAD_BUTTON_LEFT || pressedGC == PAD_BUTTON_LEFT)
 		{
-			cline -= 8;
+			cline -= 4;
 			
 			if (cline <= -1) cline = 0;
 			
@@ -2695,7 +2631,7 @@ void bluedump_loop()
 		/* Navigate right */
 		if (pressed == WPAD_BUTTON_RIGHT || pressedGC == PAD_BUTTON_RIGHT)
 		{
-			cline += 8;
+			cline += 4;
 			
 			if (cline > (lcnt - 1)) cline = lcnt - 1;
 			
@@ -2722,7 +2658,7 @@ void bluedump_loop()
 		}
 		
 		/* Enter dir */
-		if (pressed == WPAD_BUTTON_A || pressedGC == PAD_BUTTON_B)
+		if (pressed == WPAD_BUTTON_A || pressedGC == PAD_BUTTON_A)
 		{
 			// Is the current entry a dir?
 			if(ent[cline].type == DIRENT_T_DIR)
@@ -2752,11 +2688,21 @@ void bluedump_loop()
 			}
 		}
 		
+		/* Change view mode */
+		if (pressed == WPAD_BUTTON_2 || pressedGC == PAD_BUTTON_X)
+		{
+			ascii ^= 1;
+			browser(cpath, ent, cline, lcnt);
+		}
+		
 		/* Chicken out */
-		if (pressed == WPAD_BUTTON_HOME || pressedGC == PAD_BUTTON_START) break;
+		if (pressed == WPAD_BUTTON_HOME || pressedGC == PAD_BUTTON_START)
+		{
+			free(cm);
+			free(ent);
+			break; 
+		}
 	}
-	
-	free(cm);
 	
 	/* End of app loop */
 }
