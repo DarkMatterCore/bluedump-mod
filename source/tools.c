@@ -100,7 +100,7 @@ void printheadline()
 	int rows, cols;
 	CON_GetMetrics(&cols, &rows);
 	
-	printf("BlueDump MOD v0.4.");
+	printf("BlueDump MOD v0.5.");
 	
 	char buf[64];
 	sprintf(buf, "IOS%u (v%u)", IOS_GetVersion(), IOS_GetRevision());
