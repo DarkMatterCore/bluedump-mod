@@ -26,8 +26,8 @@
 #include "sha1.h"
 #include "../build/cert_sys.h"
 
-#define BLOCKSIZE		0x4000 // 16KB
-#define SD_BLOCKSIZE	0x8000 // 32KB
+#define BLOCKSIZE		0x4000 // 16 KB
+#define SD_BLOCKSIZE	0x8000 // 32 KB
 
 #define DIRENT_T_FILE 0
 #define DIRENT_T_DIR 1
@@ -270,13 +270,13 @@ s32 getdir_info(char *path, dirent_t **ent, u32 *cnt)
 	
 	*cnt = num;
 	*ent = allocate_memory(sizeof(dirent_t) * num);
-	logfile("ISFS DIR list of %s: \n\n", path);
+	logfile("\nISFS DIR list of %s: \n\n", path);
 	for(i = 0, k = 0; i < num; i++)
-	{	    
-		for(j = 0; nbuf[k] != 0; j++, k++)
-			ebuf[j] = nbuf[k];
+	{
+		for(j = 0; nbuf[k] != 0; j++, k++) ebuf[j] = nbuf[k];
 		ebuf[j] = 0;
 		k++;
+		
 		sprintf((*ent)[i].name, "%s", ebuf);
 		sprintf(pbuf, "%s/%s", path, ebuf);
 		logfile("%s\n", pbuf);
@@ -330,18 +330,35 @@ s32 getdir_info(char *path, dirent_t **ent, u32 *cnt)
 	return 0;
 }
 
-char *read_name_from_banner_app(u64 titleid, bool get_description)
+u8 imet[4] = {0x49, 0x4D, 0x45, 0x54};
+u8 wibn[4] = {0x57, 0x49, 0x42, 0x4E};
+
+char *read_name(u64 titleid, void *magic_word, u32 magic_offset, u32 name_offset, u32 desc_offset, bool get_description)
 {
 	s32 ret, cfd;
 	u32 num, cnt;
 	dirent_t *list = NULL;
 	char path[ISFS_MAXPATH] ATTRIBUTE_ALIGN(32);
-	u8 *buffer = allocate_memory(800);
+	
+	u8 *buffer = allocate_memory(0x150);
 	if (buffer == NULL)
 	{
-		//printf("Allocating memory for buffer failed.\n");
-		logfile("Allocating memory for buffer failed.\n");
-		return NULL;
+		//printf("Error allocating memory for buffer.\n");
+		logfile("Error allocating memory for buffer.\n");
+		free(list);
+		Unmount_Devices();
+		Reboot();
+	}
+	
+	fstats *status = allocate_memory(sizeof(fstats));
+	if(status == NULL) 
+	{
+		//printf("Error allocating memory for status.\n"); 
+		logfile("Error allocating memory for status.\n");
+		free(list);
+		free(buffer);
+		Unmount_Devices();
+		Reboot();
 	}
 	
 	sprintf(path, "/title/%08x/%08x/content", TITLE_UPPER(titleid), TITLE_LOWER(titleid));
@@ -351,16 +368,17 @@ char *read_name_from_banner_app(u64 titleid, bool get_description)
 	{
 		//printf("Reading folder of the title failed.\n");
 		logfile("Reading folder of the title failed.\n");
+		free(list);
 		free(buffer);
+		free(status);
 		return NULL;
 	}
 	
-	u8 imet[4] = {0x49, 0x4D, 0x45, 0x54};
 	for(cnt = 0; cnt < num; cnt++)
 	{        
-		if (strstr(list[cnt].name, ".app") != NULL || strstr(list[cnt].name, ".APP") != NULL) 
+		if (stricmp(list[cnt].name + strlen(list[cnt].name) - 4, ".app") == 0) 
 		{
-			memset(buffer, 0x00, 800);
+			memset(buffer, 0x00, 0x150);
 			sprintf(path, "/title/%08x/%08x/content/%s", TITLE_UPPER(titleid), TITLE_LOWER(titleid), list[cnt].name);
 			
 			cfd = ISFS_Open(path, ISFS_OPEN_READ);
@@ -371,109 +389,138 @@ char *read_name_from_banner_app(u64 titleid, bool get_description)
 				continue;
 			}
 			
-			ret = ISFS_Read(cfd, buffer, 800);
+			ret = ISFS_GetFileStats(cfd, status);
 			if (ret < 0)
 			{
-				//printf("ISFS_Read for '%s' failed (%d).\n", path, ret);
-				logfile("ISFS_Read for '%s' failed (%d).\n", path, ret);
+				//printf("\nISFS_GetFileStats(cfd) returned %d.\n", ret);
+				logfile("ISFS_GetFileStats(cfd) returned %d.\n", ret);
 				ISFS_Close(cfd);
 				continue;
 			}
 			
-			ISFS_Close(cfd);
-			
-			if (memcmp((buffer+0x80), imet, 4) == 0)
+			if (status->file_length > 0x150)
 			{
-				int i = 0, length = 0;
-				
-				while (buffer[0xF1 + i*2] != 0x00) i++;
-				
-				length = i;
-				i = 0;
-				char *out = allocate_memory(length+10);
-				if(out == NULL)
+				ret = ISFS_Read(cfd, buffer, 0x150);
+				if (ret < 0)
 				{
-					//printf("Allocating memory for buffer failed.\n");
-					logfile("Allocating memory for buffer failed.\n");
-					free(buffer);
-					free(list);
-					return NULL;
+					//printf("ISFS_Read for '%s' failed (%d).\n", path, ret);
+					logfile("ISFS_Read for '%s' failed (%d).\n", path, ret);
+					ISFS_Close(cfd);
+					continue;
 				}
 				
-				memset(out, 0x00, length+10);
+				ISFS_Close(cfd);
 				
-				while (buffer[0xF1 + i*2] != 0x00)
+				if (memcmp(&(buffer[magic_offset]), magic_word, 4) == 0)
 				{
-					out[i] = (char) buffer[0xF1 + i*2];
-					i++;
-				}
-				
-				if (get_description)
-				{
-					i = 0;
-					length = 0;
+					free(status);
 					
-					while(buffer[0x11B + i*2] != 0x00) i++;
+					int i = 0, length = 0;
+					
+					while (buffer[name_offset + i*2] != 0x00) i++;
 					
 					length = i;
 					i = 0;
-					char *out2 = allocate_memory(length+10);
-					if(out2 == NULL)
+					
+					char *out;
+					
+					if (get_description)
 					{
-						//printf("Error allocating memory for DLC description.\n");
-						logfile("Error allocating memory for DLC description.\n");
-						free(buffer);
-						free(list);
-						return out;
+						out = allocate_memory(length+40);
+					} else {
+						out = allocate_memory(length+1);
 					}
 					
-					memset(out2, 0x00, length+10);
-					
-					while (buffer[0x11B + i*2] != 0x00)
+					if(out == NULL)
 					{
-						out2[i] = (char) buffer[0x11B + i*2];
+						//printf("Error allocating memory for title name.\n");
+						logfile("Error allocating memory for title name.\n");
+						free(list);
+						free(buffer);
+						Unmount_Devices();
+						Reboot();
+					}
+					
+					memset(out, 0x00, (get_description ? length+40 : length+1));
+					
+					while (buffer[name_offset + i*2] != 0x00)
+					{
+						out[i] = (char) buffer[name_offset + i*2];
 						i++;
 					}
 					
-					if ((strlen(out2) != 0) && (strcmp(out2, " ") != 0))
+					if (get_description)
 					{
-						strcat(out, " [");
-						strcat(out, out2);
-						strcat(out, "]");
+						i = 0;
+						length = 0;
+						
+						while(buffer[desc_offset + i*2] != 0x00) i++;
+						
+						length = i;
+						i = 0;
+						
+						char *out2 = allocate_memory(length+1);
+						if(out2 == NULL)
+						{
+							//printf("Error allocating memory for title description.\n");
+							logfile("Error allocating memory for title description.\n");
+							free(list);
+							free(buffer);
+							free(out);
+							Unmount_Devices();
+							Reboot();
+						}
+						
+						memset(out2, 0x00, length+1);
+						
+						while (buffer[desc_offset + i*2] != 0x00)
+						{
+							out2[i] = (char) buffer[desc_offset + i*2];
+							i++;
+						}
+						
+						if ((strlen(out2) != 0) && (strcmp(out2, " ") != 0))
+						{
+							strcat(out, " [");
+							strcat(out, out2);
+							strcat(out, "]");
+						}
+						
+						free(out2);
 					}
 					
-					free(out2);
+					free(list);
+					free(buffer);
+					return out;
 				}
-				
-				free(buffer);
-				free(list);
-				return out;
+			} else {
+				ISFS_Close(cfd);
 			}
 		}
 	}
 	
-	free(buffer);
 	free(list);
+	free(buffer);
+	free(status);
 	
 	return NULL;
 }
 
 char *read_name_from_banner_bin(u64 titleid, bool get_description)
 {
-	s32 cfd;
-    s32 ret;
+	s32 cfd, ret;
     char path[ISFS_MAXPATH] ATTRIBUTE_ALIGN(32);
 	int i = 0, length = 0;
-	char *out;
+	
 	u8 *buffer = allocate_memory(160);
 	if (buffer == NULL)
 	{
-		//printf("Allocating memory for buffer failed\n");
-		logfile("Allocating memory for buffer failed.\n");
-		return NULL;
+		//printf("Error allocating memory for buffer.\n");
+		logfile("Error allocating memory for buffer.\n");
+		Unmount_Devices();
+		Reboot();
 	}
-   
-	// Try to read from banner.bin first
+	
 	sprintf(path, "/title/%08x/%08x/data/banner.bin", TITLE_UPPER(titleid), TITLE_LOWER(titleid));
 	
 	cfd = ISFS_Open(path, ISFS_OPEN_READ);
@@ -482,212 +529,85 @@ char *read_name_from_banner_bin(u64 titleid, bool get_description)
 		//printf("ISFS_Open for '%s' failed (%d).\n", path, cfd);
 		logfile("ISFS_Open for '%s' failed (%d).\n", path, cfd);
 		return NULL;
-	} else {
-	    ret = ISFS_Read(cfd, buffer, 160);
-	    if (ret < 0)
-	    {
-			//printf("ISFS_Read for '%s' failed (%d).\n", path, ret);
-			logfile("ISFS_Read for '%s' failed (%d).\n", path, ret);
-		    ISFS_Close(cfd);
-			free(buffer);
-			return NULL;
-		}
+	}
+	
+	ret = ISFS_Read(cfd, buffer, 160);
+	if (ret < 0)
+	{
+		//printf("ISFS_Read for '%s' failed (%d).\n", path, ret);
+		logfile("ISFS_Read for '%s' failed (%d).\n", path, ret);
+		ISFS_Close(cfd);
+		free(buffer);
+		return NULL;
+	}
+	
+	ISFS_Close(cfd);	
+	
+	while(buffer[0x21 + i*2] != 0x00) i++;
+	
+	length = i;
+	i = 0;
+	
+	u32 size = (get_description ? length+40 : length+1);
+	char *out = allocate_memory(size);
+	if(out == NULL)
+	{
+		//printf("Error allocating memory for banner.bin name.\n");
+		logfile("Error allocating memory for banner.bin name.\n");
+		free(buffer);
+		Unmount_Devices();
+		Reboot();
+	}
+	
+	memset(out, 0x00, size);
+	
+	while (buffer[0x21 + i*2] != 0x00)
+	{
+		out[i] = (char) buffer[0x21 + i*2];
+		i++;
+	}
+	
+	if (get_description)
+	{
+		i = 0;
+		length = 0;
 		
-		ISFS_Close(cfd);	
-		
-		while(buffer[0x21 + i*2] != 0x00) i++;
+		while(buffer[0x61 + i*2] != 0x00) i++;
 		
 		length = i;
 		i = 0;
-		out = allocate_memory(length+10);
-		if(out == NULL)
+		
+		char *out2 = allocate_memory(length+1);
+		if(out2 == NULL)
 		{
-			//printf("Allocating memory for buffer failed\n");
-			logfile("Allocating memory for buffer failed.\n");
+			//printf("Error allocating memory for banner.bin description.\n");
+			logfile("Error allocating memory for banner.bin description.\n");
 			free(buffer);
-			return NULL;
+			free(out);
+			Unmount_Devices();
+			Reboot();
 		}
 		
-		memset(out, 0x00, length+10);
+		memset(out2, 0x00, length+1);
 		
-		while (buffer[0x21 + i*2] != 0x00)
+		while (buffer[0x61 + i*2] != 0x00)
 		{
-			out[i] = (char) buffer[0x21 + i*2];
+			out2[i] = (char) buffer[0x61 + i*2];
 			i++;
 		}
 		
-		if (get_description)
+		if ((strlen(out2) != 0) && (strcmp(out2, " ") != 0))
 		{
-			i = 0;
-			length = 0;
-			
-			while(buffer[0x61 + i*2] != 0x00) i++;
-			
-			length = i;
-			i = 0;
-			char *out2 = allocate_memory(length+10);
-			if(out2 == NULL)
-			{
-				//printf("Error allocating memory for banner.bin description.\n");
-				logfile("Error allocating memory for banner.bin description.\n");
-				free(buffer);
-				return out;
-			}
-			
-			memset(out2, 0x00, length+10);
-			
-			while (buffer[0x61 + i*2] != 0x00)
-			{
-				out2[i] = (char) buffer[0x61 + i*2];
-				i++;
-			}
-			
-			
-			if ((strlen(out2) != 0) && (strcmp(out2, " ") != 0))
-			{
-				strcat(out, " [");
-				strcat(out, out2);
-				strcat(out, "]");
-			}
-			
-			free(out2);
+			strcat(out, " [");
+			strcat(out, out2);
+			strcat(out, "]");
 		}
 		
-		free(buffer);
-		return out;
-	}
- 	
-	free(buffer);
-	
-	return NULL;
-}
-
-char *read_dlc_name(u64 titleid, bool get_description)
-{
-	s32 ret, cfd;
-	u32 num, cnt;
-	dirent_t *list = NULL;
-	char path[ISFS_MAXPATH] ATTRIBUTE_ALIGN(32);
-	u8 *buffer = allocate_memory(224);
-	if (buffer == NULL)
-	{
-		//printf("Allocating memory for buffer failed.\n");
-		logfile("Allocating memory for buffer failed.\n");
-		return NULL;
-	}
-	
-	sprintf(path, "/title/%08x/%08x/content", TITLE_UPPER(titleid), TITLE_LOWER(titleid));
-	
-	ret = getdir_info(path, &list, &num);
-	if (ret < 0)
-	{
-		//printf("Reading folder of the title failed.\n");
-		logfile("Reading folder of the title failed.\n");
-		free(buffer);
-		return NULL;
-	}
-	
-	u8 wibn[4] = {0x57, 0x49, 0x42, 0x4E};
-	for(cnt = 0; cnt < num; cnt++)
-	{
-		if (strstr(list[cnt].name, ".app") != NULL || strstr(list[cnt].name, ".APP") != NULL) 
-		{
-			memset(buffer, 0x00, 224);
-			sprintf(path, "/title/%08x/%08x/content/%s", TITLE_UPPER(titleid), TITLE_LOWER(titleid), list[cnt].name);
-			
-			cfd = ISFS_Open(path, ISFS_OPEN_READ);
-			if (cfd < 0)
-			{
-				//printf("ISFS_Open for '%s' failed (%d).\n", path, cfd);
-				logfile("ISFS_Open for '%s' failed (%d).\n", path, cfd);
-				continue;
-			}
-			
-			ret = ISFS_Read(cfd, buffer, 224);
-			if (ret < 0)
-			{
-				//printf("ISFS_Read for '%s' failed (%d).\n", path, ret);
-				logfile("ISFS_Read for '%s' failed (%d).\n", path, ret);
-				ISFS_Close(cfd);
-				continue;
-			}
-			
-			ISFS_Close(cfd);
-			
-			if (memcmp((buffer+0x40), wibn, 4) == 0)
-			{
-				int i = 0, length = 0;
-				
-				while(buffer[0x61 + i*2] != 0x00) i++;
-				
-				length = i;
-				i = 0;
-				char *out = allocate_memory(length+10);
-				if(out == NULL)
-				{
-					//printf("Allocating memory for buffer failed.\n");
-					logfile("Allocating memory for buffer failed.\n");
-					free(buffer);
-					free(list);
-					return NULL;
-				}
-				
-				memset(out, 0x00, length+10);
-				
-				while (buffer[0x61 + i*2] != 0x00)
-				{
-					out[i] = (char) buffer[0x61 + i*2];
-					i++;
-				}
-				
-				if (get_description)
-				{
-					i = 0;
-					length = 0;
-					
-					while(buffer[0xA1 + i*2] != 0x00) i++;
-					
-					length = i;
-					i = 0;
-					char *out2 = allocate_memory(length+10);
-					if(out2 == NULL)
-					{
-						//printf("Error allocating memory for DLC description.\n");
-						logfile("Error allocating memory for DLC description.\n");
-						free(buffer);
-						free(list);
-						return out;
-					}
-					
-					memset(out2, 0x00, length+10);
-					
-					while (buffer[0xA1 + i*2] != 0x00)
-					{
-						out2[i] = (char) buffer[0xA1 + i*2];
-						i++;
-					}
-					
-					if ((strlen(out2) != 0) && (strcmp(out2, " ") != 0))
-					{
-						strcat(out, " [");
-						strcat(out, out2);
-						strcat(out, "]");
-					}
-					
-					free(out2);
-				}
-				
-				free(buffer);
-				free(list);
-				return out;
-			}
-		}
+		free(out2);
 	}
 	
 	free(buffer);
-	free(list);
-	
-	return NULL;
+	return out;
 }
 
 char *get_name(u64 titleid, bool get_description)
@@ -701,9 +621,9 @@ char *get_name(u64 titleid, bool get_description)
 	} else
 	if (high == 0x00010005)
 	{
-		temp = read_dlc_name(titleid, get_description);
+		temp = read_name(titleid, wibn, 0x40, 0x61, 0xA1, get_description);
 	} else {
-		temp = read_name_from_banner_app(titleid, get_description);
+		temp = read_name(titleid, imet, 0x80, 0xF1, 0x11B, get_description);
 		if (temp == NULL)
 		{
 			temp = read_name_from_banner_bin(titleid, get_description);
@@ -721,14 +641,7 @@ char *get_name(u64 titleid, bool get_description)
 
 u32 pad_data(u8 *ptr, u32 len, bool pad_16)
 {
-	u32 new_size;
-	
-	if (pad_16)
-	{
-		new_size = round16(len);
-	} else {
-		new_size = round64(len);
-	}
+	u32 new_size = (pad_16 ? round16(len) : round64(len));
 	
 	u32 diff = new_size - len;
 	
@@ -888,9 +801,6 @@ void forge_tmd(signed_blob *s_tmd)
 	zero_sig(s_tmd, false);
 	
 	brute_tmd(SIGNATURE_PAYLOAD(s_tmd));
-	
-	printf("done.\n");
-	logfile("done.\n");
 }
 
 void forge_tik(signed_blob *s_tik)
@@ -900,9 +810,6 @@ void forge_tik(signed_blob *s_tik)
 	zero_sig(s_tik, true);
 	
 	brute_tik(SIGNATURE_PAYLOAD(s_tik));
-	
-	printf("done.\n");
-	logfile("done.\n");
 }
 
 void GetTMD(FILE *f, u64 id, signed_blob **tmd, bool forgetmd)
@@ -910,7 +817,7 @@ void GetTMD(FILE *f, u64 id, signed_blob **tmd, bool forgetmd)
 	char path[ISFS_MAXPATH];
 	u8 *buffer;
 	
-	u32 size = 0;
+	u32 size;
 	
 	sprintf(path, "/title/%08x/%08x/content/title.tmd", TITLE_UPPER(id), TITLE_LOWER(id));
 	
@@ -1890,7 +1797,7 @@ void browser(char cpath[ISFS_MAXPATH + 1], dirent_t* ent, int cline, int lcnt)
 	
 	logfile("\n\nBROWSER: Using Wii NAND. Inserted device: %s.\nPath: %s\n", (isSD ? "SD Card" : "USB Storage"), cpath);
 	
-	printf("[1/Y] Dump Options  [A] Confirm/Enter Directory  [2/Y] Change view mode\n");
+	printf("[1/Y] Dump Options  [A] Confirm/Enter Directory  [2/X] Change view mode\n");
 	printf("[B] Cancel/Return to Parent Directory  [Home/Start] Exit\n\n");
 	
 	printf("Path: %s\n\n", cpath);
@@ -1962,43 +1869,43 @@ void browser(char cpath[ISFS_MAXPATH + 1], dirent_t* ent, int cline, int lcnt)
 			{
 				if (strncmp(ent[i].name, "48414b45", 8) == 0)
 				{
-					printf("%s %s - EULA (USA) v%u\n", (i == cline ? "->" : "  "), (ascii ? GetASCII(strtoll(ent[i].name, NULL, 16)) : ent[i].name), get_version(TITLE_ID(0x00010008, 0x48414b45)));
+					printf("%s %s - EULA (USA) v%u\n", (i == cline ? "->" : "  "), (ascii ? "HAKE" : ent[i].name), get_version(TITLE_ID(0x00010008, 0x48414b45)));
 				} else
 				if (strncmp(ent[i].name, "48414b4a", 8) == 0)
 				{
-					printf("%s %s - EULA (JAP) v%u\n", (i == cline ? "->" : "  "), (ascii ? GetASCII(strtoll(ent[i].name, NULL, 16)) : ent[i].name), get_version(TITLE_ID(0x00010008, 0x48414b4a)));
+					printf("%s %s - EULA (JAP) v%u\n", (i == cline ? "->" : "  "), (ascii ? "HAKJ" : ent[i].name), get_version(TITLE_ID(0x00010008, 0x48414b4a)));
 				} else
 				if (strncmp(ent[i].name, "48414b4b", 8) == 0)
 				{
-					printf("%s %s - EULA (KOR) v%u\n", (i == cline ? "->" : "  "), (ascii ? GetASCII(strtoll(ent[i].name, NULL, 16)) : ent[i].name), get_version(TITLE_ID(0x00010008, 0x48414b4b)));
+					printf("%s %s - EULA (KOR) v%u\n", (i == cline ? "->" : "  "), (ascii ? "HAKK" : ent[i].name), get_version(TITLE_ID(0x00010008, 0x48414b4b)));
 				} else
 				if (strncmp(ent[i].name, "48414b50", 8) == 0)
 				{
-					printf("%s %s - EULA (EUR) v%u\n", (i == cline ? "->" : "  "), (ascii ? GetASCII(strtoll(ent[i].name, NULL, 16)) : ent[i].name), get_version(TITLE_ID(0x00010008, 0x48414b50)));
+					printf("%s %s - EULA (EUR) v%u\n", (i == cline ? "->" : "  "), (ascii ? "HAKP" : ent[i].name), get_version(TITLE_ID(0x00010008, 0x48414b50)));
 				} else
 				if (strncmp(ent[i].name, "48414c45", 8) == 0)
 				{
-					printf("%s %s - Region Select (USA) v%u\n", (i == cline ? "->" : "  "), (ascii ? GetASCII(strtoll(ent[i].name, NULL, 16)) : ent[i].name), get_version(TITLE_ID(0x00010008, 0x48414c45)));
+					printf("%s %s - Region Select (USA) v%u\n", (i == cline ? "->" : "  "), (ascii ? "HALE" : ent[i].name), get_version(TITLE_ID(0x00010008, 0x48414c45)));
 				} else
 				if (strncmp(ent[i].name, "48414c4a", 8) == 0)
 				{
-					printf("%s %s - Region Select (JAP) v%u\n", (i == cline ? "->" : "  "), (ascii ? GetASCII(strtoll(ent[i].name, NULL, 16)) : ent[i].name), get_version(TITLE_ID(0x00010008, 0x48414c4a)));
+					printf("%s %s - Region Select (JAP) v%u\n", (i == cline ? "->" : "  "), (ascii ? "HALJ" : ent[i].name), get_version(TITLE_ID(0x00010008, 0x48414c4a)));
 				} else
 				if (strncmp(ent[i].name, "48414c4b", 8) == 0)
 				{
-					printf("%s %s - Region Select (KOR) v%u\n", (i == cline ? "->" : "  "), (ascii ? GetASCII(strtoll(ent[i].name, NULL, 16)) : ent[i].name), get_version(TITLE_ID(0x00010008, 0x48414c4b)));
+					printf("%s %s - Region Select (KOR) v%u\n", (i == cline ? "->" : "  "), (ascii ? "HALK" : ent[i].name), get_version(TITLE_ID(0x00010008, 0x48414c4b)));
 				} else
 				if (strncmp(ent[i].name, "48414c50", 8) == 0)
 				{
-					printf("%s %s - Region Select (EUR) v%u\n", (i == cline ? "->" : "  "), (ascii ? GetASCII(strtoll(ent[i].name, NULL, 16)) : ent[i].name), get_version(TITLE_ID(0x00010008, 0x48414c50)));
+					printf("%s %s - Region Select (EUR) v%u\n", (i == cline ? "->" : "  "), (ascii ? "HALP" : ent[i].name), get_version(TITLE_ID(0x00010008, 0x48414c50)));
 				} else
 				if (strncmp(ent[i].name, "44564458", 8) == 0)
 				{
-					printf("%s %s - DVDx (pre-4.2 fix)\n", (i == cline ? "->" : "  "), (ascii ? GetASCII(strtoll(ent[i].name, NULL, 16)) : ent[i].name));
+					printf("%s %s - DVDx (pre-4.2 fix)\n", (i == cline ? "->" : "  "), (ascii ? "DVDX" : ent[i].name));
 				} else
 				if (strncmp(ent[i].name, "44495343", 8) == 0)
 				{
-					printf("%s %s - DVDx (new version)\n", (i == cline ? "->" : "  "), (ascii ? GetASCII(strtoll(ent[i].name, NULL, 16)) : ent[i].name));
+					printf("%s %s - DVDx (new version)\n", (i == cline ? "->" : "  "), (ascii ? "DISC" : ent[i].name));
 				} else {
 					printf("%s %s - Unknown Hidden Channel\n", (i == cline ? "->" : "  "), (ascii ? GetASCII(strtoll(ent[i].name, NULL, 16)) : ent[i].name));
 				}
@@ -2565,7 +2472,7 @@ void bluedump_loop()
 	u32 pressedGC;
 	
 	reset_log();
-	logfile("BlueDump MOD v0.4 - Logfile.\n");
+	logfile("BlueDump MOD v0.5 - Logfile.\n");
 	logfile("SDmnt(%d), USBmnt(%d), isSD(%d).\n\n", SDmnt, USBmnt, isSD);
 	
 	/* Read the content.map file here to avoid reading it at a later time */
@@ -2621,9 +2528,12 @@ void bluedump_loop()
 		/* Navigate left */
 		if (pressed == WPAD_BUTTON_LEFT || pressedGC == PAD_BUTTON_LEFT)
 		{
-			cline -= 4;
-			
-			if (cline <= -1) cline = 0;
+			if (cline >= 4)
+			{
+				cline -= 4;
+			} else {
+				cline = 0;
+			}
 			
 			browser(cpath, ent, cline, lcnt);
 		}
@@ -2703,6 +2613,8 @@ void bluedump_loop()
 			break; 
 		}
 	}
+	
+	printf("\nExiting...");
 	
 	/* End of app loop */
 }

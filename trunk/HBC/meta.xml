@@ -2,8 +2,8 @@
 	<app version="1">
 		<name>BlueDump</name>
 		<coder>nicksasa, DarkMatterCore</coder>
-		<version>MOD v0.4</version>
-		<release_date>20130826050000</release_date>
+		<version>MOD v0.5</version>
+		<release_date>20130827172500</release_date>
 		<short_description>Title and save manager</short_description>
 		<long_description>BlueDump is an application capable of dumping any type of title installed in your Wii console to a WAD file in a SD Card or an USB storage device. It can also backup and restore savegames in their unencrypted form.
 
@@ -23,6 +23,14 @@ The same things applies if you want to backup savedata for a VC title: just go t
 *TriiForce and FSToolBox projects (WiiPower and nicksasa).
 
 === Changelog ===
+
+MOD v0.5 (August 27th, 2013 - DarkMatterCore):
+
+* read_name_from_banner_app() and read_dlc_name() functions are now merged.
+* Fixed a bug in the read_name() function which would return wrong text if the title has contents smaller than the size of the chunk read into memory (e.g. YouTube Channel, it has two 'dummy' contents of 0x40 bytes each).
+* Fixed a *possible* buffer overflow in the read_name*() functions, since they were allocating 'length+10' bytes for the name buffer and then the description string was concatenated to it (which is usually longer than 10 bytes). Now, they're just allocating enough space for what they need.
+* Fixed left button behaviour.
+* More code changes.
 
 MOD v0.4 (August 26th, 2013 - DarkmatterCore):
 
