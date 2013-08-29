@@ -154,17 +154,6 @@ map_entry_t *cm;
 size_t content_map_size;
 size_t content_map_items;
 
-void check_not_0(size_t ret, char *error)
-{
-	if(ret <= 0)
-	{
-		printf(error);
-		logfile(error);
-		Unmount_Devices();
-		Reboot();
-	}	
-}
-
 s32 __FileCmp(const void *a, const void *b)
 {
 	dirent_t *hdr1 = (dirent_t *)a;
@@ -178,8 +167,7 @@ s32 __FileCmp(const void *a, const void *b)
 		if (hdr1->type == DIRENT_T_DIR)
 		{
 			return -1;
-		} else
-		{
+		} else {
 			return 1;
 		}
 	}
@@ -422,14 +410,8 @@ char *read_name(u64 titleid, void *magic_word, u32 magic_offset, u32 name_offset
 					length = i;
 					i = 0;
 					
-					char *out;
-					
-					if (get_description)
-					{
-						out = allocate_memory(length+40);
-					} else {
-						out = allocate_memory(length+1);
-					}
+					u32 size = (get_description ? length+40 : length+1);
+					char *out = allocate_memory(size);
 					
 					if(out == NULL)
 					{
@@ -441,7 +423,7 @@ char *read_name(u64 titleid, void *magic_word, u32 magic_offset, u32 name_offset
 						Reboot();
 					}
 					
-					memset(out, 0x00, (get_description ? length+40 : length+1));
+					memset(out, 0x00, size);
 					
 					while (buffer[name_offset + i*2] != 0x00)
 					{
@@ -664,9 +646,8 @@ u32 pad_data(u8 *ptr, u32 len, bool pad_16)
 	return new_size;
 }
 
-u32 read_isfs(char *path, u8 **out)
+s32 read_isfs(char *path, u8 **out, u32 *size)
 {
-	u32 size;
 	s32 ret, fd;
 	fstats *status;
 	
@@ -675,15 +656,14 @@ u32 read_isfs(char *path, u8 **out)
 	{
 		//printf("ISFS_Open for '%s' returned %d.\n", path, fd);
 		logfile("ISFS_Open for '%s' returned %d.\n", path, fd);
-		Unmount_Devices();
-		Reboot();
+		return -1;
 	}
 	
 	status = allocate_memory(sizeof(fstats));
 	if(status == NULL) 
 	{
-		//printf("Error allocating memory for status.\n"); 
-		logfile("Error allocating memory for status.\n"); 
+		//printf("Error allocating memory for status.\n");
+		logfile("Error allocating memory for status.\n");
 		ISFS_Close(fd);
 		Unmount_Devices();
 		Reboot();
@@ -694,13 +674,21 @@ u32 read_isfs(char *path, u8 **out)
 	{
 		//printf("\nISFS_GetFileStats(fd) returned %d.\n", ret);
 		logfile("ISFS_GetFileStats(fd) returned %d.\n", ret);
-		ISFS_Close(fd);
 		free(status);
-		Unmount_Devices();
-		Reboot();
+		ISFS_Close(fd);
+		return -1;
 	}
 	
 	u32 fullsize = status->file_length;
+	free(status);
+	
+	if (fullsize == 0)
+	{
+		free(status);
+		ISFS_Close(fd);
+		return -1;
+	}
+	
 	logfile("Size = %u bytes.\n", fullsize);
 	
 	u8 *out2 = allocate_memory(fullsize);
@@ -708,41 +696,41 @@ u32 read_isfs(char *path, u8 **out)
 	{ 
 		//printf("Error allocating memory for out.\n");
 		logfile("\nError allocating memory for out.\n");
-		free(status);
 		ISFS_Close(fd);
 		Unmount_Devices();
 		Reboot();
 	}
 	
-	u32 writeindex = 0, restsize = status->file_length;
+	u32 blksize, writeindex = 0, restsize = fullsize;
 	
 	while (restsize > 0)
 	{
 		if (restsize >= BLOCKSIZE)
 		{
-			size = BLOCKSIZE;
+			blksize = BLOCKSIZE;
 		} else {
-			size = restsize;
+			blksize = restsize;
 		}
 		
-		ret = ISFS_Read(fd, &(out2[writeindex]), size);
-		if (ret < 0)
+		ret = ISFS_Read(fd, &(out2[writeindex]), blksize);
+		if (ret < 0) 
 		{
-			//printf("\nISFS_Read(%d, %d) returned %d.\n", fd, size, ret);
-			logfile("\nISFS_Read(%d, %d) returned %d.\n", fd, size, ret);
-			free(status);
-			Unmount_Devices();
-			Reboot();
+			//printf("\nISFS_Read(%d, %d) returned %d.\n", fd, blksize, ret);
+			logfile("\nISFS_Read(%d, %d) returned %d.\n", fd, blksize, ret);
+			free(out2);
+			ISFS_Close(fd);
+			return -1;
 		}
 		
-		writeindex += size;
-		restsize -= size;
+		writeindex += blksize;
+		restsize -= blksize;
 	}
 	
-	free(status);
 	ISFS_Close(fd);
+	
 	*out = out2;
-	return fullsize;
+	*size = fullsize;
+	return 0;
 }
 
 void zero_sig(signed_blob *sig, bool wipe_cid_ecdh)
@@ -812,17 +800,22 @@ void forge_tik(signed_blob *s_tik)
 	brute_tik(SIGNATURE_PAYLOAD(s_tik));
 }
 
-void GetTMD(FILE *f, u64 id, signed_blob **tmd, bool forgetmd)
+s32 GetTMD(FILE *f, u64 id, signed_blob **tmd, bool forgetmd)
 {
 	char path[ISFS_MAXPATH];
 	u8 *buffer;
-	
 	u32 size;
 	
 	sprintf(path, "/title/%08x/%08x/content/title.tmd", TITLE_UPPER(id), TITLE_LOWER(id));
 	
 	logfile("TMD path is '%s'.\n", path);
-	size = read_isfs(path, &buffer);
+	s32 ret = read_isfs(path, &buffer, &size);
+	if (ret < 0)
+	{
+		printf("Error getting TMD!\n");
+		return -1;
+	}
+	
 	header->tmd_len = size;
 	
 	if ((size % 64) != 0)
@@ -841,19 +834,26 @@ void GetTMD(FILE *f, u64 id, signed_blob **tmd, bool forgetmd)
 	fwrite(buffer, 1, size, f);
 	
 	*tmd = (signed_blob *)buffer;
+	
+	return 0;
 }	
 
-void GetTicket(FILE *f, u64 id, signed_blob **tik, bool forgetik)
+s32 GetTicket(FILE *f, u64 id, signed_blob **tik, bool forgetik)
 {
 	char path[ISFS_MAXPATH];
 	u8 *buffer;
-	
 	u32 size;
 	
 	sprintf(path, "/ticket/%08x/%08x.tik", TITLE_UPPER(id), TITLE_LOWER(id));
 	
 	logfile("Ticket path is '%s'.\n", path);
-	size = read_isfs(path, &buffer);
+	s32 ret = read_isfs(path, &buffer, &size);
+	if (ret < 0)
+	{
+		printf("Error getting Ticket!\n");
+		return -1;
+	}
+	
 	header->tik_len = size;
 	
 	if ((size % 64) != 0)
@@ -879,6 +879,8 @@ void GetTicket(FILE *f, u64 id, signed_blob **tik, bool forgetik)
 	fwrite(buffer, 1, size, f);
 	
 	*tik = (signed_blob *)buffer;
+	
+	return 0;
 }	
 
 u32 GetCerts(FILE *f)
@@ -896,7 +898,7 @@ u32 GetCerts(FILE *f)
 	return cert_sys_size;
 }
 
-u32 GetContent(FILE *f, u64 id, u16 content, u16 index, u32 size)
+s32 GetContent(FILE *f, u64 id, u16 content, u16 index, u32 size)
 {
 	char path[ISFS_MAXPATH];
 	
@@ -907,18 +909,17 @@ u32 GetContent(FILE *f, u64 id, u16 content, u16 index, u32 size)
 	s32 fd = ISFS_Open(path, ISFS_OPEN_READ);
 	if (fd < 0)
 	{
-		//printf("ISFS_Open for '%s' returned %d.\n", path, fd);
 		logfile("ISFS_Open for '%s' returned %d.\n", path, fd);
-		return 0;
+		return -1;
 	}
 	
-	u32 blksize = BLOCKSIZE; // 16KB
+	u32 blksize = BLOCKSIZE; // 16 KB
 	
 	u8 *buffer = (u8*)memalign(32, blksize);
 	if (buffer == NULL)
 	{
-		//printf("Allocating memory for buffer failed.\n");
-		logfile("Allocating memory for buffer failed.\n");
+		//printf("Error allocating memory for buffer.\n");
+		logfile("Error allocating memory for buffer.\n");
 		ISFS_Close(fd);
 		Unmount_Devices();
 		Reboot();
@@ -927,8 +928,9 @@ u32 GetContent(FILE *f, u64 id, u16 content, u16 index, u32 size)
 	u8 *encryptedcontentbuf = (u8*)memalign(32, blksize);
 	if (encryptedcontentbuf == NULL)
 	{
-		//printf("Allocating memory for buffer failed.\n");
-		logfile("Allocating memory for encryptedcontentbuf failed.\n");
+		//printf("Error allocating memory for encryptedcontentbuf.\n");
+		logfile("Error allocating memory for encryptedcontentbuf.\n");
+		free(buffer);
 		ISFS_Close(fd);
 		Unmount_Devices();
 		Reboot();
@@ -984,25 +986,17 @@ u32 GetContent(FILE *f, u64 id, u16 content, u16 index, u32 size)
 		size2 += blksize;
 	}
 	
-	logfile("Content added successfully. Original content size: %u bytes. size2: %u bytes.\n", size, size2);
-	
 	free(buffer);
 	free(encryptedcontentbuf);
 	ISFS_Close(fd);
 	
-	if (ret < 0)
-	{
-		//printf("Failed to read data into content buffer.");
-		logfile("Failed to read data into content buffer.");
-		fclose(f);
-		Unmount_Devices();
-		Reboot();
-	}
+	if (ret < 0) return -1;
 	
+	logfile("Content added successfully. Original content size: %u bytes. size2: %u bytes.\n", size, size2);
 	printf("done.\n");
 	
 	header->data_len += size2;
-	return size2;
+	return 0;
 }
 
 void *GetContentMap(size_t *cm_size)
@@ -1040,13 +1034,13 @@ void *GetContentMap(size_t *cm_size)
 	return buf;
 }
 
-void GetSharedContent(FILE *f, u16 index, u8* hash, map_entry_t *cm, u32 elements)
+s32 GetSharedContent(FILE *f, u16 index, u8* hash, map_entry_t *cm, u32 elements)
 {
-	u32 i;
-	bool found = false;
 	u8 *shared_buf;
-	u32 shared_size;
+	u32 i, shared_size;
+	bool found = false;
 	char path[32] ATTRIBUTE_ALIGN(32);
+	s32 ret;
 	
 	printf("Adding shared content... ");
 	for (i = 0; i < elements; i++)
@@ -1056,14 +1050,8 @@ void GetSharedContent(FILE *f, u16 index, u8* hash, map_entry_t *cm, u32 element
 			found = true;
 			sprintf(path, "/shared1/%.8s.app", cm[i].filename);
 			logfile("Found shared content! Path is '%s'.\nReading... ", path);
-			shared_size = read_isfs(path, &shared_buf);
-			if (shared_size == 0)
-			{
-				printf("\nReading content failed, size = 0.\n");
-				logfile("\nReading content failed, size = 0.\n");
-				Unmount_Devices();
-				Reboot();
-			}
+			ret = read_isfs(path, &shared_buf, &shared_size);
+			if (ret < 0) return -1;
 			logfile("done.\n");
 			
 			if ((shared_size % 16) != 0)
@@ -1122,7 +1110,7 @@ void GetSharedContent(FILE *f, u16 index, u8* hash, map_entry_t *cm, u32 element
 		}
 	}
 	
-	if(found == false)
+	if (found == false)
 	{
 		printf("\nCould not find the shared content, no hash did match!");
 		logfile("Could not find the shared content, no hash did match!\n");
@@ -1133,6 +1121,7 @@ void GetSharedContent(FILE *f, u16 index, u8* hash, map_entry_t *cm, u32 element
 	}
 	
 	printf("done.\n");
+	return 0;
 }
 
 int isdir_device(char *path)
@@ -2001,20 +1990,22 @@ s32 Wad_Dump(u64 id, char *path, bool ftik, bool ftmd)
 {
 	make_header();
 	
+	logfile("Path for dump = %s.\n", path);
 	logfile("Started WAD Packing...\nPacking Title %08x-%08x\n", TITLE_UPPER(id), TITLE_LOWER(id));
 
 	signed_blob *p_tik = NULL;
 	signed_blob *p_tmd = NULL;
 	
-	tmd *tmd_data  = NULL;
+	tmd *tmd_data = NULL;
 	u8 key[16];
 	
+	s32 ret;
 	u32 cnt = 0;
 	
 	FILE *wadout;
 	if (!create_folders(path))
 	{
-		//printf("Error creating folder(s) for '%s'.\n", path);
+		printf("\nError creating folder(s) for '%s'.\nIs your storage device write protected?\n", path);
 		logfile("Error creating folder(s) for '%s'.\n", path);
 		return -1;
 	}
@@ -2022,10 +2013,10 @@ s32 Wad_Dump(u64 id, char *path, bool ftik, bool ftmd)
 	wadout = fopen(path, "wb");
 	if (!wadout)
 	{
-		//printf("\nfopen error.\n");
+		printf("\nfopen error. Is your storage device write protected?\n");
 		logfile("fopen error.\n");
-		Unmount_Devices();
-		Reboot();
+		free(header);
+		return -1;
 	}
 	
 	/* Reserve space for the header */
@@ -2034,8 +2025,9 @@ s32 Wad_Dump(u64 id, char *path, bool ftik, bool ftmd)
 	{
 		//printf("Out of memory.\n");
 		logfile("Out of memory\n");
-		fclose(wadout);
 		free(header);
+		fclose(wadout);
+		remove(path);
 		Unmount_Devices();
 		Reboot();
 	}
@@ -2048,33 +2040,35 @@ s32 Wad_Dump(u64 id, char *path, bool ftik, bool ftmd)
 	logfile("Reading Certs... ");
 	fflush(stdout);
 	header->certs_len = GetCerts(wadout);
-	check_not_0(header->certs_len, "Error getting Certs.\n");
 	printf("done.\n");
 	logfile("done.\n");
 	
 	/* Get Ticket */
 	printf("Reading Ticket... ");
 	logfile("Reading Ticket... ");
-	if (!ftik)
+	ret = GetTicket(wadout, id, &p_tik, ftik);
+	if (ret < 0)
 	{
-		GetTicket(wadout, id, &p_tik, false);
-	} else {
-		GetTicket(wadout, id, &p_tik, true);
+		free(header);
+		fclose(wadout);
+		remove(path);
+		return -1;
 	}
-	check_not_0(header->tik_len, "Error getting Ticket.\n");
 	printf("done.\n");
 	logfile("done.\n");
 	
 	/* Get TMD */
 	printf("Reading TMD... ");
 	logfile("Reading TMD... ");
-	if (!ftmd)
+	ret = GetTMD(wadout, id, &p_tmd, ftmd);
+	if (ret < 0)
 	{
-		GetTMD(wadout, id, &p_tmd, false);
-	} else {
-		GetTMD(wadout, id, &p_tmd, true);
+		free(header);
+		free(p_tik);
+		fclose(wadout);
+		remove(path);
+		return -1;
 	}
-	check_not_0(header->tmd_len, "Error getting TMD.\n");
 	printf("done.\n");
 	logfile("done.\n");
 	
@@ -2096,44 +2090,56 @@ s32 Wad_Dump(u64 id, char *path, bool ftik, bool ftmd)
 		logfile("Processing content #%u... ", cnt);
 		tmd_content *content = &tmd_data->contents[cnt];
 		
-		u32 len2 = 0;
+		ret = 0;
 		
-		u16 type = 0;
-		
-		type = content->type;
-		switch(type)
+		switch(content->type)
 		{
 			case 0x0001: // Normal
-				len2 = GetContent(wadout, id, content->cid, content->index, (u32)content->size);
-				check_not_0(len2, "Error reading content.\n");
+				ret = GetContent(wadout, id, content->cid, content->index, (u32)content->size);
 				break;
 			case 0x8001: // Shared
-				GetSharedContent(wadout, content->index, content->hash, cm, content_map_items);
+				ret = GetSharedContent(wadout, content->index, content->hash, cm, content_map_items);
 				break;
 			case 0x4001: // DLC
-				len2 = GetContent(wadout, id, content->cid, content->index, (u32)content->size);
-				check_not_0(len2, "Error reading content.\n");
+				ret = GetContent(wadout, id, content->cid, content->index, (u32)content->size);
 				break;
 			default:
-				printf("Unknown content type: 0x%04x. Aborting mission...\n", type);
-				logfile("Unknown content type: 0x%04x. Aborting mission...\n", type);
-				sleep(2);
+				printf("Unknown content type: 0x%04x. Aborting mission...\n", content->type);
+				logfile("Unknown content type: 0x%04x. Aborting mission...\n", content->type);
+				free(header);
+				fclose(wadout);
+				remove(path);
 				Unmount_Devices();
 				Reboot();
 				break;
 		}
 		
-		if (cnt == 0) sprintf(footer_path, "/title/%08x/%08x/content/%08x.app", TITLE_UPPER(id), TITLE_LOWER(id), content->cid);
+		if (ret < 0) break;
+		
+		if (cnt == 0)
+		{
+			sprintf(footer_path, "/title/%08x/%08x/content/%08x.app", TITLE_UPPER(id), TITLE_LOWER(id), content->cid);
+		}
 	}
 	
 	free(p_tmd);
+	
+	if (ret < 0)
+	{
+		printf("\nError reading content!\n");
+		logfile("Error reading content!");
+		free(header);
+		fclose(wadout);
+		remove(path);
+		return -1;
+	}
 	
 	/* Add unencrypted footer */
 	u8 *footer_buf;
 	u32 footer_size;
 	printf("Adding footer... ");
 	logfile("Adding footer... ");
-	footer_size = read_isfs(footer_path, &footer_buf);
+	read_isfs(footer_path, &footer_buf, &footer_size);
 	header->footer_len = footer_size;
 	if ((footer_size % 64) != 0) footer_size = pad_data(footer_buf, footer_size, false);
 	fwrite(footer_buf, 1, footer_size, wadout);
@@ -2352,7 +2358,7 @@ void dump_menu(char *cpath, char *tmp, int cline, int lcnt, dirent_t *ent)
 				{
 					printf("This is not a title! Use the savedata functions for this.\n");
 				} else {
-					logfile("Creating WAD...\n");
+					logfile("\nCreating WAD...\n");
 					
 					select_forge();
 					
@@ -2360,7 +2366,7 @@ void dump_menu(char *cpath, char *tmp, int cline, int lcnt, dirent_t *ent)
 					printheadline();
 					printf("Creating WAD...\n");
 					
-					char dump_path[256];
+					char dump_path[100];
 					
 					switch (ent[cline].function)
 					{
@@ -2431,28 +2437,26 @@ void dump_menu(char *cpath, char *tmp, int cline, int lcnt, dirent_t *ent)
 					if (for_tik && for_tmd)
 					{
 						strncat(dump_path, " (ftmd+ftik).wad", 16);
-						logfile("Path for dump = %s.\n", dump_path);
-						Wad_Dump(titleID, dump_path, true, true);
 					} else
 					if (!for_tik && for_tmd)
 					{
 						strncat(dump_path, " (ftmd).wad", 11);
-						logfile("Path for dump = %s.\n", dump_path);
-						Wad_Dump(titleID, dump_path, false, true);
 					} else
 					if (for_tik && !for_tmd)
 					{
 						strncat(dump_path, " (ftik).wad", 11);
-						logfile("Path for dump = %s.\n", dump_path);
-						Wad_Dump(titleID, dump_path, true, false);
 					} else {
 						strncat(dump_path, ".wad", 4);
-						logfile("Path for dump = %s.\n", dump_path);
-						Wad_Dump(titleID, dump_path, false, false);
 					}
 					
-					logfile("WAD dump complete!\n");
-					printf("WAD dump complete! Output file:\n\n\t%s", dump_path);
+					s32 ret = Wad_Dump(titleID, dump_path, for_tik, for_tmd);
+					if (ret < 0)
+					{
+						printf("\nError dumping title to WAD file!");
+					} else {
+						logfile("WAD dump complete!\n");
+						printf("WAD dump complete! Output file:\n\n\t%s", dump_path);
+					}
 				}
 				break;
 			default:
@@ -2510,6 +2514,7 @@ void bluedump_loop()
 			} else {
 				cline = lcnt - 1;
 			}
+			
 			browser(cpath, ent, cline, lcnt);
 		}
 		
@@ -2522,6 +2527,7 @@ void bluedump_loop()
 			} else {
 				cline = 0;
 			}
+			
 			browser(cpath, ent, cline, lcnt);
 		}
 		
@@ -2541,9 +2547,12 @@ void bluedump_loop()
 		/* Navigate right */
 		if (pressed == WPAD_BUTTON_RIGHT || pressedGC == PAD_BUTTON_RIGHT)
 		{
-			cline += 4;
-			
-			if (cline > (lcnt - 1)) cline = lcnt - 1;
+			if (cline <= (lcnt - 5))
+			{
+				cline += 4;
+			} else {
+				cline = lcnt - 1;
+			}
 			
 			browser(cpath, ent, cline, lcnt);
 		}
