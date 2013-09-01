@@ -22,32 +22,81 @@ void Reboot()
 	SYS_ResetSystem(SYS_RETURNTOMENU, 0, 0);
 }
 
-void waitforbuttonpress(u32 *out, u32 *outGC)
+/* Big thanks to JoostinOnline for the new controller code */
+u32 DetectInput(u8 DownOrHeld)
 {
 	u32 pressed = 0;
-	u32 pressedGC = 0;
-
+	
 	while (true)
 	{
-		WPAD_ScanPads();
-		pressed = WPAD_ButtonsDown(0) | WPAD_ButtonsDown(1) | WPAD_ButtonsDown(2) | WPAD_ButtonsDown(3);
+		// Wii Remote (and Classic Controller) take precedence over GC to save time
 		
-		PAD_ScanPads();
-		pressedGC = PAD_ButtonsDown(0) | PAD_ButtonsDown(1) | PAD_ButtonsDown(2) | PAD_ButtonsDown(3);
-		
-		if(pressed || pressedGC) 
+		if (WPAD_ScanPads() > WPAD_ERR_NONE) // Scan the Wii remotes.  If there any problems, skip checking buttons
 		{
-			if (pressedGC)
+			if (DownOrHeld == DI_BUTTONS_DOWN)
 			{
-				// Without waiting you can't select anything
-				usleep (20000);
+				pressed = WPAD_ButtonsDown(0) | WPAD_ButtonsDown(1) | WPAD_ButtonsDown(2) | WPAD_ButtonsDown(3); //Store pressed buttons
+			} else {
+				pressed = WPAD_ButtonsHeld(0) | WPAD_ButtonsHeld(1) | WPAD_ButtonsHeld(2) | WPAD_ButtonsHeld(3); //Store pressed buttons
 			}
 			
-			if (out) *out = pressed;
-			if (outGC) *outGC = pressedGC;
-			return;
+			// Convert to wiimote values
+			if (pressed)
+			{
+				if (pressed & WPAD_CLASSIC_BUTTON_ZR) pressed |= WPAD_BUTTON_PLUS;
+				if (pressed & WPAD_CLASSIC_BUTTON_ZL) pressed |= WPAD_BUTTON_MINUS;
+				
+				if (pressed & WPAD_CLASSIC_BUTTON_PLUS) pressed |= WPAD_BUTTON_PLUS;
+				if (pressed & WPAD_CLASSIC_BUTTON_MINUS) pressed |= WPAD_BUTTON_MINUS;
+				
+				if (pressed & WPAD_CLASSIC_BUTTON_A) pressed |= WPAD_BUTTON_A;
+				if (pressed & WPAD_CLASSIC_BUTTON_B) pressed |= WPAD_BUTTON_B;
+				if (pressed & WPAD_CLASSIC_BUTTON_X) pressed |= WPAD_BUTTON_2;
+				if (pressed & WPAD_CLASSIC_BUTTON_Y) pressed |= WPAD_BUTTON_1;
+				if (pressed & WPAD_CLASSIC_BUTTON_HOME) pressed |= WPAD_BUTTON_HOME;
+				
+				if (pressed & WPAD_CLASSIC_BUTTON_UP) pressed |= WPAD_BUTTON_UP;
+				if (pressed & WPAD_CLASSIC_BUTTON_DOWN) pressed |= WPAD_BUTTON_DOWN;
+				if (pressed & WPAD_CLASSIC_BUTTON_LEFT) pressed |= WPAD_BUTTON_LEFT;
+				if (pressed & WPAD_CLASSIC_BUTTON_RIGHT) pressed |= WPAD_BUTTON_RIGHT;
+				
+				break;
+			}
+		}
+		
+		// No buttons on the Wii remote or Classic Controller were pressed
+		
+		if (PAD_ScanPads() > PAD_ERR_NONE)
+		{
+			if (DownOrHeld == DI_BUTTONS_DOWN)
+			{
+				pressed = PAD_ButtonsDown(0) | PAD_ButtonsDown(1) | PAD_ButtonsDown(2) | PAD_ButtonsDown(3); //Store pressed buttons
+			} else {
+				pressed = PAD_ButtonsHeld(0) | PAD_ButtonsHeld(1) | PAD_ButtonsHeld(2) | PAD_ButtonsHeld(3); //Store pressed buttons
+			}
+			
+			if (pressed)
+			{
+				// Button on GC controller was pressed
+				if (pressed & PAD_TRIGGER_R) pressed |= WPAD_BUTTON_PLUS;
+				if (pressed & PAD_TRIGGER_L) pressed |= WPAD_BUTTON_MINUS;
+				if (pressed & PAD_BUTTON_A) pressed |= WPAD_BUTTON_A;
+				if (pressed & PAD_BUTTON_B) pressed |= WPAD_BUTTON_B;
+				if (pressed & PAD_BUTTON_X) pressed |= WPAD_BUTTON_2;
+				if (pressed & PAD_BUTTON_Y) pressed |= WPAD_BUTTON_1;
+				if (pressed & PAD_BUTTON_MENU) pressed |= WPAD_BUTTON_HOME;
+				if (pressed & PAD_BUTTON_UP) pressed |= WPAD_BUTTON_UP;
+				if (pressed & PAD_BUTTON_LEFT) pressed |= WPAD_BUTTON_LEFT;
+				if (pressed & PAD_BUTTON_DOWN) pressed |= WPAD_BUTTON_DOWN;
+				if (pressed & PAD_BUTTON_RIGHT) pressed |= WPAD_BUTTON_RIGHT;
+				
+				break;
+			}
 		}
 	}
+	
+	// Return Wii Remote, Classic Controller or GameCube values
+	return pressed;
 }
 
 void Init_Console()
@@ -211,7 +260,6 @@ int ahbprot_menu()
 {
 	s32 ret;
 	u32 pressed;
-	u32 pressedGC;
 
 	/* HW_AHBPROT check */
 	if (AHBPROT_DISABLED)
@@ -225,13 +273,13 @@ int ahbprot_menu()
 		
 		for (;;)
 		{
-			waitforbuttonpress(&pressed, &pressedGC);
+			pressed = DetectInput(DI_BUTTONS_DOWN);
 			
 			/* A button */
-			if (pressed == WPAD_BUTTON_A || pressedGC == PAD_BUTTON_A) break;
+			if (pressed & WPAD_BUTTON_A) break;
 			
 			/* B button */
-			if (pressed == WPAD_BUTTON_B || pressedGC == PAD_BUTTON_B)
+			if (pressed & WPAD_BUTTON_B)
 			{
 				resetscreen();
 				printheadline();
@@ -239,7 +287,7 @@ int ahbprot_menu()
 			}
 			
 			/* HOME/Start button */
-			if (pressed == WPAD_BUTTON_HOME || pressedGC == PAD_BUTTON_START)
+			if (pressed & WPAD_BUTTON_HOME)
 			{
 				Reboot();
 			}
@@ -340,7 +388,6 @@ u8 *get_ioslist(u32 *cnt)
 int ios_selectionmenu(int default_ios)
 {
 	u32 pressed;
-	u32 pressedGC;
 	int selection = 0;
 	u32 ioscount;
 	u8 *list = get_ioslist(&ioscount);
@@ -376,9 +423,9 @@ int ios_selectionmenu(int default_ios)
 		printf("\nPress B to continue without IOS Reload.");
 		printf("\nPress HOME or Start to exit.\n");
 		
-		waitforbuttonpress(&pressed, &pressedGC);
+		pressed = DetectInput(DI_BUTTONS_DOWN);
 		
-		if (pressed == WPAD_BUTTON_LEFT || pressedGC == PAD_BUTTON_LEFT)
+		if (pressed & WPAD_BUTTON_LEFT)
 		{	
 			if (selection > 0)
 			{
@@ -388,7 +435,7 @@ int ios_selectionmenu(int default_ios)
 			}
 		}
 		
-		if (pressed == WPAD_BUTTON_RIGHT || pressedGC == PAD_BUTTON_RIGHT)
+		if (pressed & WPAD_BUTTON_RIGHT)
 		{
 			if (selection < ioscount -1	)
 			{
@@ -398,11 +445,11 @@ int ios_selectionmenu(int default_ios)
 			}
 		}
 		
-		if (pressed == WPAD_BUTTON_A || pressedGC == PAD_BUTTON_A) break;
+		if (pressed & WPAD_BUTTON_A) break;
 		
-		if (pressed == WPAD_BUTTON_B || pressedGC == PAD_BUTTON_B) return 0;
+		if (pressed & WPAD_BUTTON_B) return 0;
 		
-		if (pressed == WPAD_BUTTON_HOME || pressedGC == PAD_BUTTON_START) Reboot();
+		if (pressed & WPAD_BUTTON_HOME) Reboot();
 	}
 	
 	return list[selection];
@@ -412,7 +459,6 @@ void Mount_Devices()
 {
 	int ret;
 	u32 pressed;
-	u32 pressedGC;
 	
 	printf("\n\t- SD Card: ");
 	ret = Init_SD();
@@ -458,15 +504,15 @@ void Mount_Devices()
 		
 		while(true)
 		{
-			waitforbuttonpress(&pressed, &pressedGC);
+			pressed = DetectInput(DI_BUTTONS_DOWN);
 			
-			if (pressed == WPAD_BUTTON_A || pressedGC == PAD_BUTTON_A)
+			if (pressed & WPAD_BUTTON_A)
 			{
 				isSD = true;
 				break;
 			}
 			
-			if (pressed == WPAD_BUTTON_B || pressedGC == PAD_BUTTON_B)
+			if (pressed & WPAD_BUTTON_B)
 			{
 				isSD = false;
 				break;

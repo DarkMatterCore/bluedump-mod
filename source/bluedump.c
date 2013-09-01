@@ -52,6 +52,8 @@
 #define round64(x)      round_up(x,0x40)
 #define round16(x)		round_up(x,0x10)
 
+#define MAX_CHARACTERS(x) sizeof(x) / sizeof(x[0]) // Returns the number of elements in an array
+
 u8 commonkey[16] = { 0xeb, 0xe4, 0x2a, 0x22, 0x5e, 0x85, 0x93, 0xe4, 0x48, 0xd9, 0xc5, 0x45, 0x73, 0x81, 0xaa, 0xf7 };
 
 bool MakeDir(const char *Path)
@@ -320,6 +322,7 @@ s32 getdir_info(char *path, dirent_t **ent, u32 *cnt)
 
 u8 imet[4] = {0x49, 0x4D, 0x45, 0x54};
 u8 wibn[4] = {0x57, 0x49, 0x42, 0x4E};
+char titlename[64];
 
 char *read_name(u64 titleid, void *magic_word, u32 magic_offset, u32 name_offset, u32 desc_offset, bool get_description)
 {
@@ -350,6 +353,7 @@ char *read_name(u64 titleid, void *magic_word, u32 magic_offset, u32 name_offset
 	}
 	
 	sprintf(path, "/title/%08x/%08x/content", TITLE_UPPER(titleid), TITLE_LOWER(titleid));
+	snprintf(titlename, MAX_CHARACTERS(titlename), "Channel/Title deleted from Wii Menu? (couldn't get info)");
 	
 	ret = getdir_info(path, &list, &num);
 	if (ret < 0)
@@ -359,11 +363,11 @@ char *read_name(u64 titleid, void *magic_word, u32 magic_offset, u32 name_offset
 		free(list);
 		free(buffer);
 		free(status);
-		return NULL;
+		return titlename;
 	}
 	
 	for(cnt = 0; cnt < num; cnt++)
-	{        
+	{
 		if (stricmp(list[cnt].name + strlen(list[cnt].name) - 4, ".app") == 0) 
 		{
 			memset(buffer, 0x00, 0x150);
@@ -405,14 +409,9 @@ char *read_name(u64 titleid, void *magic_word, u32 magic_offset, u32 name_offset
 					
 					int i = 0, length = 0;
 					
-					while (buffer[name_offset + i*2] != 0x00) i++;
+					while (buffer[name_offset + length*2] != 0x00) length++;
 					
-					length = i;
-					i = 0;
-					
-					u32 size = (get_description ? length+40 : length+1);
-					char *out = allocate_memory(size);
-					
+					char *out = allocate_memory(length+1);
 					if(out == NULL)
 					{
 						//printf("Error allocating memory for title name.\n");
@@ -423,7 +422,7 @@ char *read_name(u64 titleid, void *magic_word, u32 magic_offset, u32 name_offset
 						Reboot();
 					}
 					
-					memset(out, 0x00, size);
+					memset(out, 0x00, length+1);
 					
 					while (buffer[name_offset + i*2] != 0x00)
 					{
@@ -431,15 +430,14 @@ char *read_name(u64 titleid, void *magic_word, u32 magic_offset, u32 name_offset
 						i++;
 					}
 					
+					snprintf(titlename, MAX_CHARACTERS(titlename), "%s", out);
+					
 					if (get_description)
 					{
 						i = 0;
 						length = 0;
 						
-						while(buffer[desc_offset + i*2] != 0x00) i++;
-						
-						length = i;
-						i = 0;
+						while(buffer[desc_offset + length*2] != 0x00) length++;
 						
 						char *out2 = allocate_memory(length+1);
 						if(out2 == NULL)
@@ -463,9 +461,7 @@ char *read_name(u64 titleid, void *magic_word, u32 magic_offset, u32 name_offset
 						
 						if ((strlen(out2) != 0) && (strcmp(out2, " ") != 0))
 						{
-							strcat(out, " [");
-							strcat(out, out2);
-							strcat(out, "]");
+							snprintf(titlename, MAX_CHARACTERS(titlename), "%s [%s]", out, out2);
 						}
 						
 						free(out2);
@@ -473,7 +469,8 @@ char *read_name(u64 titleid, void *magic_word, u32 magic_offset, u32 name_offset
 					
 					free(list);
 					free(buffer);
-					return out;
+					free(out);
+					return titlename;
 				}
 			} else {
 				ISFS_Close(cfd);
@@ -485,7 +482,7 @@ char *read_name(u64 titleid, void *magic_word, u32 magic_offset, u32 name_offset
 	free(buffer);
 	free(status);
 	
-	return NULL;
+	return titlename;
 }
 
 char *read_name_from_banner_bin(u64 titleid, bool get_description)
@@ -504,13 +501,14 @@ char *read_name_from_banner_bin(u64 titleid, bool get_description)
 	}
 	
 	sprintf(path, "/title/%08x/%08x/data/banner.bin", TITLE_UPPER(titleid), TITLE_LOWER(titleid));
+	snprintf(titlename, MAX_CHARACTERS(titlename), "Channel/Title deleted from Wii Menu? (couldn't get info)");
 	
 	cfd = ISFS_Open(path, ISFS_OPEN_READ);
 	if (cfd < 0)
 	{
 		//printf("ISFS_Open for '%s' failed (%d).\n", path, cfd);
 		logfile("ISFS_Open for '%s' failed (%d).\n", path, cfd);
-		return NULL;
+		return titlename;
 	}
 	
 	ret = ISFS_Read(cfd, buffer, 160);
@@ -520,18 +518,14 @@ char *read_name_from_banner_bin(u64 titleid, bool get_description)
 		logfile("ISFS_Read for '%s' failed (%d).\n", path, ret);
 		ISFS_Close(cfd);
 		free(buffer);
-		return NULL;
+		return titlename;
 	}
 	
 	ISFS_Close(cfd);	
 	
-	while(buffer[0x21 + i*2] != 0x00) i++;
+	while(buffer[0x21 + length*2] != 0x00) length++;
 	
-	length = i;
-	i = 0;
-	
-	u32 size = (get_description ? length+40 : length+1);
-	char *out = allocate_memory(size);
+	char *out = allocate_memory(length+1);
 	if(out == NULL)
 	{
 		//printf("Error allocating memory for banner.bin name.\n");
@@ -541,7 +535,7 @@ char *read_name_from_banner_bin(u64 titleid, bool get_description)
 		Reboot();
 	}
 	
-	memset(out, 0x00, size);
+	memset(out, 0x00, length+1);
 	
 	while (buffer[0x21 + i*2] != 0x00)
 	{
@@ -549,15 +543,14 @@ char *read_name_from_banner_bin(u64 titleid, bool get_description)
 		i++;
 	}
 	
+	snprintf(titlename, MAX_CHARACTERS(titlename), "%s", out);
+	
 	if (get_description)
 	{
 		i = 0;
 		length = 0;
 		
-		while(buffer[0x61 + i*2] != 0x00) i++;
-		
-		length = i;
-		i = 0;
+		while(buffer[0x61 + length*2] != 0x00) length++;
 		
 		char *out2 = allocate_memory(length+1);
 		if(out2 == NULL)
@@ -580,16 +573,15 @@ char *read_name_from_banner_bin(u64 titleid, bool get_description)
 		
 		if ((strlen(out2) != 0) && (strcmp(out2, " ") != 0))
 		{
-			strcat(out, " [");
-			strcat(out, out2);
-			strcat(out, "]");
+			snprintf(titlename, MAX_CHARACTERS(titlename), "%s [%s]", out, out2);
 		}
 		
 		free(out2);
 	}
 	
 	free(buffer);
-	return out;
+	free(out);
+	return titlename;
 }
 
 char *get_name(u64 titleid, bool get_description)
@@ -606,16 +598,10 @@ char *get_name(u64 titleid, bool get_description)
 		temp = read_name(titleid, wibn, 0x40, 0x61, 0xA1, get_description);
 	} else {
 		temp = read_name(titleid, imet, 0x80, 0xF1, 0x11B, get_description);
-		if (temp == NULL)
+		if (strncmp(temp, "Channel/Title deleted from Wii Menu? (couldn't get info)", 56) == 0)
 		{
 			temp = read_name_from_banner_bin(titleid, get_description);
 		}
-	}
-	
-	if (temp == NULL)
-	{
-		temp = allocate_memory(2);
-		sprintf(temp, "Channel/Title deleted from Wii Menu? (couldn't get info)");
 	}
 	
 	return temp;
@@ -883,7 +869,7 @@ s32 GetTicket(FILE *f, u64 id, signed_blob **tik, bool forgetik)
 	return 0;
 }	
 
-u32 GetCerts(FILE *f)
+void GetCerts(FILE *f)
 {
 	if (cert_sys_size != 2560)
 	{
@@ -895,7 +881,7 @@ u32 GetCerts(FILE *f)
 	
 	fwrite(cert_sys, 1, cert_sys_size, f);
 	
-	return cert_sys_size;
+	header->certs_len = cert_sys_size;
 }
 
 s32 GetContent(FILE *f, u64 id, u16 content, u16 index, u32 size)
@@ -921,6 +907,7 @@ s32 GetContent(FILE *f, u64 id, u16 content, u16 index, u32 size)
 		//printf("Error allocating memory for buffer.\n");
 		logfile("Error allocating memory for buffer.\n");
 		ISFS_Close(fd);
+		fclose(f);
 		Unmount_Devices();
 		Reboot();
 	}
@@ -932,6 +919,7 @@ s32 GetContent(FILE *f, u64 id, u16 content, u16 index, u32 size)
 		logfile("Error allocating memory for encryptedcontentbuf.\n");
 		free(buffer);
 		ISFS_Close(fd);
+		fclose(f);
 		Unmount_Devices();
 		Reboot();
 	}
@@ -959,7 +947,7 @@ s32 GetContent(FILE *f, u64 id, u16 content, u16 index, u32 size)
 		{
 			pad = 16 - blksize % 16;
 			memset(&(buffer[blksize]), 0x00, pad);
-			logfile("Content chunk #%u padded to a 16-byte boundary. Current blksize: %u.\n", (i / BLOCKSIZE), blksize);
+			//logfile("Content chunk #%u padded to a 16-byte boundary. Current blksize: %u.\n", (i / BLOCKSIZE), blksize);
 			blksize += pad;
 		}
 		
@@ -977,7 +965,7 @@ s32 GetContent(FILE *f, u64 id, u16 content, u16 index, u32 size)
 		{
 			pad = 64 - blksize % 64;
 			memset(&(encryptedcontentbuf[blksize]), 0x00, pad);
-			logfile("Encrypted content chunk #%u padded to a 64-byte boundary. Current blksize: %u.\n", (i / BLOCKSIZE), blksize);
+			//logfile("Encrypted content chunk #%u padded to a 64-byte boundary. Current blksize: %u.\n", (i / BLOCKSIZE), blksize);
 			blksize += pad;
 		}
 		
@@ -1774,7 +1762,7 @@ bool ascii = false;
 
 char *GetASCII(u32 name)
 {
-	snprintf(ascii_id, 5, "%s", (char *)(&name));
+	snprintf(ascii_id, MAX_CHARACTERS(ascii_id), "%s", (char *)(&name));
 	return ascii_id;
 }
 
@@ -1927,7 +1915,7 @@ void browser(char cpath[ISFS_MAXPATH + 1], dirent_t* ent, int cline, int lcnt)
 	}
 }
 
-void make_header()
+void make_header(void)
 {
 	wadHeader *now = allocate_memory(sizeof(wadHeader));
 	if(now == NULL) 
@@ -2000,7 +1988,7 @@ s32 Wad_Dump(u64 id, char *path, bool ftik, bool ftmd)
 	u8 key[16];
 	
 	s32 ret;
-	u32 cnt = 0;
+	u32 cnt;
 	
 	FILE *wadout;
 	if (!create_folders(path))
@@ -2023,8 +2011,8 @@ s32 Wad_Dump(u64 id, char *path, bool ftik, bool ftmd)
 	u8 *padding_table = allocate_memory(64);
 	if (padding_table == NULL)
 	{
-		//printf("Out of memory.\n");
-		logfile("Out of memory\n");
+		//printf("Error allocating memory for padding_table.\n");
+		logfile("Error allocating memory for padding_table.\n");
 		free(header);
 		fclose(wadout);
 		remove(path);
@@ -2038,8 +2026,7 @@ s32 Wad_Dump(u64 id, char *path, bool ftik, bool ftmd)
 	/* Get Certs */
 	printf("Reading Certs... ");
 	logfile("Reading Certs... ");
-	fflush(stdout);
-	header->certs_len = GetCerts(wadout);
+	GetCerts(wadout);
 	printf("done.\n");
 	logfile("done.\n");
 	
@@ -2084,11 +2071,16 @@ s32 Wad_Dump(u64 id, char *path, bool ftik, bool ftmd)
 	char footer_path[ISFS_MAXPATH];
 	
 	tmd_data = (tmd *)SIGNATURE_PAYLOAD(p_tmd);
-	for (cnt = 0; cnt < tmd_data->num_contents; cnt++) 
+	for (cnt = 0; cnt < tmd_data->num_contents; cnt++)
 	{
 		printf("Processing content #%u... ", cnt);
 		logfile("Processing content #%u... ", cnt);
 		tmd_content *content = &tmd_data->contents[cnt];
+		
+		if (cnt == 0)
+		{
+			sprintf(footer_path, "/title/%08x/%08x/content/%08x.app", TITLE_UPPER(id), TITLE_LOWER(id), content->cid);
+		}
 		
 		ret = 0;
 		
@@ -2107,6 +2099,7 @@ s32 Wad_Dump(u64 id, char *path, bool ftik, bool ftmd)
 				printf("Unknown content type: 0x%04x. Aborting mission...\n", content->type);
 				logfile("Unknown content type: 0x%04x. Aborting mission...\n", content->type);
 				free(header);
+				free(p_tmd);
 				fclose(wadout);
 				remove(path);
 				Unmount_Devices();
@@ -2115,11 +2108,6 @@ s32 Wad_Dump(u64 id, char *path, bool ftik, bool ftmd)
 		}
 		
 		if (ret < 0) break;
-		
-		if (cnt == 0)
-		{
-			sprintf(footer_path, "/title/%08x/%08x/content/%08x.app", TITLE_UPPER(id), TITLE_LOWER(id), content->cid);
-		}
 	}
 	
 	free(p_tmd);
@@ -2179,57 +2167,28 @@ u64 copy_id(char *path)
 	return titleID;
 }
 
-u64 copy_id_sd_save(char *path, bool disc, bool channel)
-{
-	u32 low = 0;
-	
-	u64 titleID;
-	memcpy(&low, path+27, 4);
-	
-	logfile("copy_id_sd_save low = %08x.\n", low);
-	
-	if (disc && !channel)
-	{
-		logfile("copy_id_sd_save: disc.\n");
-		titleID = TITLE_ID(0x00010000, low);
-	} else
-	if (!disc && channel)
-	{
-		logfile("copy_id_sd_save: channel.\n");
-		titleID = TITLE_ID(0x00010001, low);
-	} else {
-		logfile("copy_id_sd_save: gamechan.\n");
-		titleID = TITLE_ID(0x00010004, low);
-	}
-	
-	logfile("Generated copy_id_sd_save ID was '%08x-%08x'.\n", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
-	
-	return titleID;
-}
-
 bool for_tik = false;
 bool for_tmd = false;
 
 void select_forge()
 {
 	u32 pressed;
-	u32 pressedGC;
 
 	printf("\n\nDo you want to fakesign the ticket?");
 	printf("\n[A] Yes (recommended)   [B] No\n");
 	
 	while(true)
 	{
-		waitforbuttonpress(&pressed, &pressedGC);
+		pressed = DetectInput(DI_BUTTONS_DOWN);
 		
-		if (pressed == WPAD_BUTTON_A || pressedGC == PAD_BUTTON_A)
+		if (pressed & WPAD_BUTTON_A)
 		{
 			for_tik = true;
 			logfile("forge_tik set to true.\n");
 			break;
 		}
 		
-		if (pressed == WPAD_BUTTON_B || pressedGC == PAD_BUTTON_B)
+		if (pressed & WPAD_BUTTON_B)
 		{
 			for_tik = false;
 			logfile("forge_tik set to false.\n");
@@ -2242,16 +2201,16 @@ void select_forge()
 	
 	while(true)
 	{
-		waitforbuttonpress(&pressed, &pressedGC);
+		pressed = DetectInput(DI_BUTTONS_DOWN);
 		
-		if (pressed == WPAD_BUTTON_A || pressedGC == PAD_BUTTON_A)
+		if (pressed & WPAD_BUTTON_A)
 		{
 			for_tmd = true;
 			logfile("forge_tmd set to true.\n");
 			break;
 		}
 		
-		if (pressed == WPAD_BUTTON_B || pressedGC == PAD_BUTTON_B)
+		if (pressed & WPAD_BUTTON_B)
 		{
 			for_tmd = false;
 			logfile("forge_tmd set to false.\n");
@@ -2263,7 +2222,6 @@ void select_forge()
 void dump_menu(char *cpath, char *tmp, int cline, int lcnt, dirent_t *ent)
 {
 	u32 pressed;
-	u32 pressedGC;
 	
 	bool go_back = false;
 	char *options[3] = { "Backup Savedata >", "< Restore Savedata >" , "< Backup to WAD"};
@@ -2282,9 +2240,9 @@ void dump_menu(char *cpath, char *tmp, int cline, int lcnt, dirent_t *ent)
 		
 		printf("\n\nPress B to return to the browser.");
 		
-		waitforbuttonpress(&pressed, &pressedGC);
+		pressed = DetectInput(DI_BUTTONS_DOWN);
 		
-		if (pressed == WPAD_BUTTON_LEFT || pressedGC == PAD_BUTTON_LEFT)
+		if (pressed & WPAD_BUTTON_LEFT)
 		{	
 			if (selection > 0)
 			{
@@ -2292,7 +2250,7 @@ void dump_menu(char *cpath, char *tmp, int cline, int lcnt, dirent_t *ent)
 			}
 		}
 		
-		if (pressed == WPAD_BUTTON_RIGHT || pressedGC == PAD_BUTTON_RIGHT)
+		if (pressed & WPAD_BUTTON_RIGHT)
 		{	
 			if (selection < 2)
 			{
@@ -2300,13 +2258,13 @@ void dump_menu(char *cpath, char *tmp, int cline, int lcnt, dirent_t *ent)
 			}
 		}
 		
-		if (pressed == WPAD_BUTTON_B || pressedGC == PAD_BUTTON_B)
+		if (pressed & WPAD_BUTTON_B)
 		{
 			go_back = true;
 			break;
 		}
 		
-		if (pressed == WPAD_BUTTON_A || pressedGC == PAD_BUTTON_A) break;
+		if (pressed & WPAD_BUTTON_A) break;
 	}
 	
 	if (!go_back)
@@ -2469,11 +2427,10 @@ void dump_menu(char *cpath, char *tmp, int cline, int lcnt, dirent_t *ent)
 	browser(cpath, ent, cline, lcnt);
 }
 
-void bluedump_loop()
+void bluedump_loop(void)
 {
 	int i = 0;
 	u32 pressed;
-	u32 pressedGC;
 	
 	reset_log();
 	logfile("BlueDump MOD v0.5 - Logfile.\n");
@@ -2503,10 +2460,10 @@ void bluedump_loop()
 	
 	while(true)
 	{
-		waitforbuttonpress(&pressed, &pressedGC);
+		pressed = DetectInput(DI_BUTTONS_DOWN);
 		
 		/* Navigate up */
-		if (pressed == WPAD_BUTTON_UP || pressedGC == PAD_BUTTON_UP)
+		if (pressed & WPAD_BUTTON_UP)
 		{			
 			if(cline > 0) 
 			{
@@ -2519,7 +2476,7 @@ void bluedump_loop()
 		}
 		
 		/* Navigate down */
-		if (pressed == WPAD_BUTTON_DOWN || pressedGC == PAD_BUTTON_DOWN)
+		if (pressed & WPAD_BUTTON_DOWN)
 		{
 			if(cline < (lcnt - 1))
 			{
@@ -2532,7 +2489,7 @@ void bluedump_loop()
 		}
 		
 		/* Navigate left */
-		if (pressed == WPAD_BUTTON_LEFT || pressedGC == PAD_BUTTON_LEFT)
+		if (pressed & WPAD_BUTTON_LEFT)
 		{
 			if (cline >= 4)
 			{
@@ -2545,7 +2502,7 @@ void bluedump_loop()
 		}
 		
 		/* Navigate right */
-		if (pressed == WPAD_BUTTON_RIGHT || pressedGC == PAD_BUTTON_RIGHT)
+		if (pressed & WPAD_BUTTON_RIGHT)
 		{
 			if (cline <= (lcnt - 5))
 			{
@@ -2558,7 +2515,7 @@ void bluedump_loop()
 		}
 		
 		/* Enter parent dir */
-		if (pressed == WPAD_BUTTON_B || pressedGC == PAD_BUTTON_B)
+		if (pressed & WPAD_BUTTON_B)
 		{
 			int len = strlen(cpath);
 			for(i = len; cpath[i] != '/'; i--);
@@ -2577,7 +2534,7 @@ void bluedump_loop()
 		}
 		
 		/* Enter dir */
-		if (pressed == WPAD_BUTTON_A || pressedGC == PAD_BUTTON_A)
+		if (pressed & WPAD_BUTTON_A)
 		{
 			// Is the current entry a dir?
 			if(ent[cline].type == DIRENT_T_DIR)
@@ -2599,7 +2556,7 @@ void bluedump_loop()
 		}
 		
 		/* Dump options */
-		if (pressed == WPAD_BUTTON_1 || pressedGC == PAD_BUTTON_Y)
+		if (pressed & WPAD_BUTTON_1)
 		{
 			if (lcnt != 0 && strlen(cpath) == 15)
 			{
@@ -2608,14 +2565,14 @@ void bluedump_loop()
 		}
 		
 		/* Change view mode */
-		if (pressed == WPAD_BUTTON_2 || pressedGC == PAD_BUTTON_X)
+		if (pressed & WPAD_BUTTON_2)
 		{
 			ascii ^= 1;
 			browser(cpath, ent, cline, lcnt);
 		}
 		
 		/* Chicken out */
-		if (pressed == WPAD_BUTTON_HOME || pressedGC == PAD_BUTTON_START)
+		if (pressed & WPAD_BUTTON_HOME)
 		{
 			free(cm);
 			free(ent);
