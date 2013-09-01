@@ -1,12 +1,19 @@
+#ifndef __TOOLS_H__
+#define __TOOLS_H__
+
 #include <sys/unistd.h>
 #include <wiiuse/wpad.h>
 #include <malloc.h>
 #include <runtimeiospatch.h>
 
+// Values for DetectInput
+#define DI_BUTTONS_DOWN		0
+#define DI_BUTTONS_HELD		1
+
 bool SDmnt, USBmnt, isSD;
 
 void Reboot();
-void waitforbuttonpress(u32 *out, u32 *outGC);
+u32 DetectInput(u8 DownOrHeld);
 void Init_Console();
 void resetscreen();
 void printheadline();
@@ -20,3 +27,6 @@ void reset_log();
 void logfile(const char *format, ...);
 void hexdump_log(void *d, int len);
 void hex_key_dump(void *d, int len);
+
+#endif
+

@@ -8,15 +8,13 @@
 
 extern void __exception_setreload(int);
 
-void bluedump_loop();
+void bluedump_loop(void);
 
 int main(int argc, char* argv[])
 {
 	__exception_setreload(10);
 	
 	int ret;
-	u32 pressed;
-	u32 pressedGC;
 	
 	Init_Console();
 	printf("\x1b[%u;%um", 37, false);
