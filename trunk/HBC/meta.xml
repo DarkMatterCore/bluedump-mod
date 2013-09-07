@@ -2,8 +2,8 @@
 	<app version="1">
 		<name>BlueDump</name>
 		<coder>nicksasa, DarkMatterCore</coder>
-		<version>MOD v0.5</version>
-		<release_date>20130827172500</release_date>
+		<version>MOD v0.6</version>
+		<release_date>20130907050000</release_date>
 		<short_description>Title and save manager</short_description>
 		<long_description>BlueDump is an application capable of dumping any type of title installed in your Wii console to a WAD file in a SD Card or an USB storage device. It can also backup and restore savegames in their unencrypted form.
 
@@ -23,6 +23,16 @@ The same things applies if you want to backup savedata for a VC title: just go t
 *TriiForce and FSToolBox projects (WiiPower and nicksasa).
 
 === Changelog ===
+
+MOD v0.6 (September 7th, 2013 - DarkMatterCore and JoostinOnline):
+
+* Added compatibility with content.bin files stored in SD:/private/wii/title. You can switch between normal WAD dumping and content.bin conversion modes with +/R.
+* Added code to read the OTP contents and copy them to a previously aligned memory block. This is needed to access both the PRNG Key and the Console ID, which are used in the content.bin conversion process.
+* Added compatibility with Classic Controllers (thanks to JoostinOnline!).
+* Optimized name reading functions. Instead of allocating a memory block and then returning it (which is unsafe), now a single global character string is used, with its current value being updated by using snprintf() (thanks to JoostinOnline!).
+* Added meta.xml argument support to enable or disable the logfile creation without having to recompile the entire application (thanks to JoostinOnline!).
+* New sexy, smexy icon (thanks to JoostinOnline!).
+* Some other changes and simplifications that reduce the overall CPU use (thanks to JoostinOnline!).
 
 MOD v0.5 (August 27th, 2013 - DarkMatterCore):
 
@@ -94,4 +104,7 @@ Alpha 1:
 
 * Never released.</long_description>
 <ahb_access/>
-	</app>
+<arguments>
+	<arg>debug=0</arg>
+</arguments>
+	</app> 
