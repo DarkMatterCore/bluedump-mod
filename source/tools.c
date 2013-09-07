@@ -9,8 +9,6 @@
 
 #include "tools.h"
 
-//#define DEBUG
-
 extern DISC_INTERFACE __io_usbstorage;
 
 static void *xfb = NULL;
@@ -26,6 +24,9 @@ void Reboot()
 u32 DetectInput(u8 DownOrHeld)
 {
 	u32 pressed = 0;
+	
+	/* For some reason, the original DectectInput() code was preveting the dump_menu() function to even show up */
+	/* I fixed that by adding this while loop */
 	
 	while (true)
 	{
@@ -139,17 +140,12 @@ void Init_Console()
     VIDEO_ClearFrameBuffer(rmode, xfb, COLOR_BLACK);
 }
 
-void resetscreen()
-{
-	printf("\x1b[2J");
-}
-
 void printheadline()
 {
 	int rows, cols;
 	CON_GetMetrics(&cols, &rows);
 	
-	printf("BlueDump MOD v0.5.");
+	printf("BlueDump MOD v0.6.");
 	
 	char buf[64];
 	sprintf(buf, "IOS%u (v%u)", IOS_GetVersion(), IOS_GetRevision());
@@ -157,7 +153,7 @@ void printheadline()
 	printf(buf);
 	
 	printf("\nOriginal code by nicksasa and WiiPower.");
-	printf("\nFixes and corrections by DarkMatterCore.\n\n");
+	printf("\nUpdated by DarkMatterCore. Additional code by JoostinOnline.\n\n");
 }
 
 void set_highlight(bool highlight)
@@ -166,8 +162,7 @@ void set_highlight(bool highlight)
 	{
 		printf("\x1b[%u;%um", 47, false);
 		printf("\x1b[%u;%um", 30, false);
-	} else
-	{
+	} else {
 		printf("\x1b[%u;%um", 37, false);
 		printf("\x1b[%u;%um", 40, false);
 	}
@@ -185,7 +180,8 @@ void Con_ClearLine()
 	CON_GetMetrics(&cols, &rows);
 
 	/* Erase line */
-	for (cnt = 1; cnt < cols; cnt++) {
+	for (cnt = 1; cnt < cols; cnt++)
+	{
 		printf(" ");
 		fflush(stdout);
 	}
@@ -200,10 +196,7 @@ s32 Init_SD()
 	
 	__io_wiisd.shutdown();
 	
-	if (!fatMountSimple("sd", &__io_wiisd))
-	{
-		return -1;
-	}
+	if (!fatMountSimple("sd", &__io_wiisd)) return -1;
 	
 	return 0;
 }
@@ -224,10 +217,7 @@ s32 Init_USB()
 	{
 		fatUnmount("usb");
 		
-		if (!fatMountSimple("usb", &__io_usbstorage))
-		{
-			return -1;
-		}
+		if (!fatMountSimple("usb", &__io_usbstorage)) return -1;
 		
 		bool isInserted = __io_usbstorage.isInserted();
 		
@@ -264,7 +254,7 @@ int ahbprot_menu()
 	/* HW_AHBPROT check */
 	if (AHBPROT_DISABLED)
 	{
-		printf("HW_AHBPROT protection is disabled!\n");
+		printf("Hardware protection is disabled!\n");
 		printf("Current IOS: %u.\n\n", IOS_GetVersion());
 		
 		printf("Press A button to use full hardware access.\n");
@@ -287,10 +277,7 @@ int ahbprot_menu()
 			}
 			
 			/* HOME/Start button */
-			if (pressed & WPAD_BUTTON_HOME)
-			{
-				Reboot();
-			}
+			if (pressed & WPAD_BUTTON_HOME) Reboot();
 		}
 		
 		printf("Initializing IOS patches... ");
@@ -393,7 +380,7 @@ int ios_selectionmenu(int default_ios)
 	u8 *list = get_ioslist(&ioscount);
 	
 	int i;
-	for (i=0;i<ioscount;i++)
+	for (i = 0; i < ioscount; i++)
 	{
 		/* Default to default_ios if found, else the loaded IOS */
 		
@@ -415,10 +402,10 @@ int ios_selectionmenu(int default_ios)
 		printf("Select the IOS version to use:       \b\b\b\b\b\b");
 		
 		set_highlight(true);
-		printf("< IOS%u >\n", list[selection]);
+		printf("IOS%u", list[selection]);
 		set_highlight(false);
 		
-		printf("\nPress LEFT/RIGHT to change IOS version.");
+		printf("\n\nPress LEFT/RIGHT to change IOS version.");
 		printf("\nPress A button to load the selected IOS.");
 		printf("\nPress B to continue without IOS Reload.");
 		printf("\nPress HOME or Start to exit.\n");
@@ -525,15 +512,9 @@ void Unmount_Devices()
 {
 	ISFS_Deinitialize();
 	
-	if(SDmnt)
-	{
-		Close_SD();
-	}
+	if (SDmnt) Close_SD();
 	
-	if(USBmnt)
-	{
-		Close_USB();
-	}
+	if (USBmnt) Close_USB();
 }
 
 void reset_log()
@@ -548,70 +529,64 @@ void reset_log()
 
 void logfile(const char *format, ...)
 {
-#ifdef DEBUG
-	char buffer[256];
-	va_list args;
-	va_start(args, format);
-	vsprintf(buffer, format, args);
-	FILE *f;
-	
-	if (isSD)
+	if (__debug)
 	{
-		f = fopen("sd:/BlueDump.log", "a");
-	} else {
-		f = fopen("usb:/BlueDump.log", "a");
+		char buffer[256];
+		va_list args;
+		va_start(args, format);
+		vsprintf(buffer, format, args);
+		FILE *f;
+		
+		if (isSD)
+		{
+			f = fopen("sd:/BlueDump.log", "a");
+		} else {
+			f = fopen("usb:/BlueDump.log", "a");
+		}
+		
+		if (!f) return;
+		
+		fputs(buffer, f);
+		fclose(f);
+		va_end (args);
 	}
-	
-	if (!f) return;
-	
-	fputs(buffer, f);
-	fclose(f);
-	va_end (args);
-#endif
 }
 
 void hexdump_log(void *d, int len)
 {
-#ifdef DEBUG
-    u8 *data;
-    int i, f, off;
-    data = (u8*)d;
-    for (off=0; off<len; off += 16) 
+	if (__debug)
 	{
-        logfile("%08x:  ",16*(off/16));
-		for(f=0; f < 16; f += 4)
+		int i, f, off;
+		u8 *data = (u8*)d;
+		for (off=0; off<len; off += 16) 
 		{
-			for(i=0; i<4; i++)
+			logfile("%08x:  ",16*(off/16));
+			for(f=0; f < 16; f += 4)
 			{
-				if((i+off)>=len)
+				for(i=0; i<4; i++)
 				{
-					logfile(" ");
-				} else
-				{
-					logfile("%02x",data[off+f+i]);
-				}  
-                
-				//logfile(" ");
-			}
-			logfile(" ");
-		}	
+					if((i+off)>=len)
+					{
+						logfile(" ");
+					} else {
+						logfile("%02x",data[off+f+i]);
+					}  
+				}
+				logfile(" ");
+			}	
+			logfile("\n");
+		}		
 		logfile("\n");
-		//logfile(" ");
-    }		
-    logfile("\n");
-#endif
+	}
 }
 
 void hex_key_dump(void *d, int len)
 {
-#ifdef DEBUG
-	u8 *data;
-	int i;
-	data = (u8*)d;
-	
-	for(i = 0; i < len; i++)
+	if (__debug)
 	{
-		logfile("%02x ", data[i]);
+		int i;
+		u8 *data = (u8*)d;
+		
+		for(i = 0; i < len; i++) logfile("%02x ", data[i]);
 	}
-#endif
 }

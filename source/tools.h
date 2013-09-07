@@ -10,12 +10,13 @@
 #define DI_BUTTONS_DOWN		0
 #define DI_BUTTONS_HELD		1
 
-bool SDmnt, USBmnt, isSD;
+#define resetscreen() printf("\x1b[2J")
+
+bool SDmnt, USBmnt, isSD, __debug;
 
 void Reboot();
 u32 DetectInput(u8 DownOrHeld);
 void Init_Console();
-void resetscreen();
 void printheadline();
 void set_highlight(bool highlight);
 void Con_ClearLine();
@@ -29,4 +30,3 @@ void hexdump_log(void *d, int len);
 void hex_key_dump(void *d, int len);
 
 #endif
-
