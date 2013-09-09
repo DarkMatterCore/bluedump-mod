@@ -36,14 +36,24 @@ int main(int argc, char* argv[])
 			if (atoi(CHECK_ARG_VAL("debug=")) == 1)
 			{
 				__debug = true;
+				
 				printf("Debug mode activated!\n\n");
 				printf("Overall application performance may be slower than before.\n");
 				printf("This is completely normal, and is because debug info will be constantly\n");
 				printf("written to the \"BlueDump.log\" file in the selected storage device.\n\n");
 				printf("Press any button to continue...");
-				DetectInput(DI_BUTTONS_DOWN);
-				resetscreen();
-				printheadline();
+				
+				while(true)
+				{
+					if (DetectInput(DI_BUTTONS_DOWN) != 0)
+					{
+						resetscreen();
+						printheadline();
+						break;
+					}
+				}
+				
+				break;
 			}
 		}
 	}

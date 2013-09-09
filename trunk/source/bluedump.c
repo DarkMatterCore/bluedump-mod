@@ -3012,7 +3012,7 @@ void sd_browser()
 void bluedump_loop(void)
 {
 	reset_log();
-	logfile("BlueDump MOD v0.6 - Logfile.\n");
+	logfile("BlueDump MOD v%s - Logfile.\n", VERSION);
 	logfile("SDmnt(%d), USBmnt(%d), isSD(%d).\n", SDmnt, USBmnt, isSD);
 	logfile("Using IOS%u v%u.\n\n", IOS_GetVersion(), IOS_GetRevision());
 	
