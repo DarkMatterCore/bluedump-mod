@@ -38,13 +38,8 @@ typedef struct _dirent
 	u16 version;
 	int type;
 	int function;
-	u32 ownerID;
-	u16 groupID;
-	u8 attributes;
-	u8 ownerperm;
-	u8 groupperm;
-	u8 otherperm;
-} dirent_t;	
+	char titlename[ISFS_MAXPATH + 1];
+} dirent_t;
 
 /* 'WAD Header' structure */
 typedef struct 
@@ -80,4 +75,4 @@ size_t content_map_items;
 
 void bluedump_loop(void);
 
-#endif
+#endif /* __BLUEDUMP_H__ */

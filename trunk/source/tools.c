@@ -257,7 +257,7 @@ int ahbprot_menu()
 		printf("Press B button to reload to another IOS.\n");
 		printf("Press HOME or Start to exit.\n\n");
 		
-		for (;;)
+		for(;;)
 		{
 			pressed = DetectInput(DI_BUTTONS_DOWN);
 			
