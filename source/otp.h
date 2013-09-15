@@ -27,4 +27,4 @@ typedef struct
 
 void Get_OTP_data();
 
-#endif
+#endif /* __OTP_H__ */

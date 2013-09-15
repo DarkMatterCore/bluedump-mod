@@ -6,7 +6,7 @@
 #include <malloc.h>
 #include <runtimeiospatch.h>
 
-#define VERSION "0.6"
+#define VERSION "0.7"
 
 // Values for DetectInput
 #define DI_BUTTONS_DOWN		0
@@ -31,4 +31,4 @@ void logfile(const char *format, ...);
 void hexdump_log(void *d, int len);
 void hex_key_dump(void *d, int len);
 
-#endif
+#endif /* __TOOLS_H__ */

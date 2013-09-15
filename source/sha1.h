@@ -14,4 +14,4 @@ void SHA1Final(unsigned char digest[20], SHA1_CTX* context);
 
 void SHA1(unsigned char *ptr, unsigned int size, unsigned char *outbuf);
 
-#endif
+#endif /* __SHA1_H__ */
