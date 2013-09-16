@@ -4,7 +4,7 @@
 #include <gccore.h>
 #include <ogcsys.h>
 
-#include "bluedump.h"
+#include "yabdm.h"
 #include "tools.h"
 
 // Check if string X is in current argument
@@ -40,7 +40,7 @@ int main(int argc, char* argv[])
 				printf("Debug mode activated!\n\n");
 				printf("Overall application performance may be slower than before.\n");
 				printf("This is completely normal, and is because debug info will be constantly\n");
-				printf("written to the \"BlueDump.log\" file in the selected storage device.\n\n");
+				printf("written to the \"YABDM.log\" file in the selected storage device.\n\n");
 				printf("Press any button to continue...");
 				
 				while(true)
@@ -85,7 +85,7 @@ int main(int argc, char* argv[])
 	Mount_Devices();
 	
 	/* Main app loop */
-	bluedump_loop();
+	yabdm_loop();
 	
 	/* Unmount storage devices, including NAND FS */
 	Unmount_Devices();

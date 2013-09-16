@@ -1,5 +1,5 @@
-#ifndef __BLUEDUMP_H__
-#define __BLUEDUMP_H__
+#ifndef __YABDM_H__
+#define __YABDM_H__
 
 #define BLOCKSIZE		0x4000 // 16 KB
 #define SD_BLOCKSIZE	0x8000 // 32 KB
@@ -73,6 +73,6 @@ map_entry_t *cm;
 size_t content_map_size;
 size_t content_map_items;
 
-void bluedump_loop(void);
+void yabdm_loop(void);
 
-#endif /* __BLUEDUMP_H__ */
+#endif /* __YABDM_H__ */
