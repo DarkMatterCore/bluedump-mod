@@ -1,5 +1,5 @@
 /*******************************************************************************
- * bluedump.c                                                                  *
+ * yabdm.c                                                                     *
  *                                                                             *
  * Copyright (c) 2009 Nicksasa                                                 *
  *                                                                             *
@@ -21,7 +21,7 @@
 #include <fcntl.h>
 #include <dirent.h>
 
-#include "bluedump.h"
+#include "yabdm.h"
 #include "tools.h"
 #include "aes.h"
 #include "sha1.h"
@@ -57,7 +57,7 @@ bool MakeDir(const char *Path)
 
 bool create_folders(char *path)
 // Creates the required folders for a filepath
-// Example: Input "sd:/BlueDump/00000001/test.bin" creates "sd:/BlueDump" and "sd:/BlueDump/00000001"
+// Example: Input "sd:/YABDM/00000001/test.bin" creates "sd:/YABDM" and "sd:/YABDM/00000001"
 {
 	char *last = strrchr(path, '/');
 	char *next = strchr(path,'/');
@@ -1660,20 +1660,20 @@ bool extract_savedata(u64 titleID)
 	
 	if(TITLE_UPPER(titleID) == 0x00010000)
 	{
-		//sprintf(device_path, "%s:/BlueDump/Savedata/DISC %s", DEVICE(0), temp);
-		sprintf(device_path, "%s:/BlueDump/Savedata/DISC %s - %s", DEVICE(0), temp, RemoveIllegalCharacters(get_name(titleID, false)));
+		//sprintf(device_path, "%s:/YABDM/Savedata/DISC %s", DEVICE(0), temp);
+		sprintf(device_path, "%s:/YABDM/Savedata/DISC %s - %s", DEVICE(0), temp, RemoveIllegalCharacters(get_name(titleID, false)));
 		logfile("Savedata type: disc-based game.\n");
 	} else
 	if(TITLE_UPPER(titleID) == 0x00010001)
 	{
-		//sprintf(device_path, "%s:/BlueDump/Savedata/CHAN %s", DEVICE(0), temp);
-		sprintf(device_path, "%s:/BlueDump/Savedata/CHAN %s - %s", DEVICE(0), temp, RemoveIllegalCharacters(get_name(titleID, false)));
+		//sprintf(device_path, "%s:/YABDM/Savedata/CHAN %s", DEVICE(0), temp);
+		sprintf(device_path, "%s:/YABDM/Savedata/CHAN %s - %s", DEVICE(0), temp, RemoveIllegalCharacters(get_name(titleID, false)));
 		logfile("Savedata type: downloaded channel title.\n");
 	} else
 	if(TITLE_UPPER(titleID) == 0x00010004)
 	{
-		//sprintf(device_path, "%s:/BlueDump/Savedata/CHSV %s", DEVICE(0), temp);
-		sprintf(device_path, "%s:/BlueDump/Savedata/CHSV %s - %s", DEVICE(0), temp, RemoveIllegalCharacters(get_name(titleID, false)));
+		//sprintf(device_path, "%s:/YABDM/Savedata/CHSV %s", DEVICE(0), temp);
+		sprintf(device_path, "%s:/YABDM/Savedata/CHSV %s - %s", DEVICE(0), temp, RemoveIllegalCharacters(get_name(titleID, false)));
 		logfile("Savedata type: game that uses channel.\n");
 	}
 	
@@ -1714,7 +1714,7 @@ bool install_savedata(u64 titleID)
 	sprintf(path, "/title/%08x/%08x/data", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
 	logfile("ISFS path is '%s'.\n", path);
 	
-	sprintf(device_path, "%s:/BlueDump/Savedata", DEVICE(0));
+	sprintf(device_path, "%s:/YABDM/Savedata", DEVICE(0));
 	logfile("%s path is '%s'.\n", DEVICE(1), device_path);
 	
 	success = writefolder(device_path, temp, path, path_out, false);
@@ -2609,18 +2609,18 @@ void dump_menu(char *cpath, char *tmp, int cline, dirent_t *ent)
 					/* Workaround for HBC 1.0.7 - 1.1.0 */
 					if (low != 0xAF1BF516)
 					{
-						snprintf(dump_path, MAX_CHARACTERS(dump_path), "%s:/BlueDump/WAD/%s v%u - %s", DEVICE(0), RemoveIllegalCharacters(get_name(titleID, false)), get_version(titleID), GetASCII(low));
+						snprintf(dump_path, MAX_CHARACTERS(dump_path), "%s:/YABDM/WAD/%s v%u - %s", DEVICE(0), RemoveIllegalCharacters(get_name(titleID, false)), get_version(titleID), GetASCII(low));
 					} else {
-						snprintf(dump_path, MAX_CHARACTERS(dump_path), "%s:/BlueDump/WAD/Homebrew Channel - AF1BF516", DEVICE(0));
+						snprintf(dump_path, MAX_CHARACTERS(dump_path), "%s:/YABDM/WAD/Homebrew Channel - AF1BF516", DEVICE(0));
 					}
 				} else
 				if (ent[cline].function == TYPE_IOS || ent[cline].function == TYPE_HIDDEN)
 				{
 					if (strncmp(ent[cline].titlename, "Unknown Hidden Channel", 22) == 0)
 					{
-						snprintf(dump_path, MAX_CHARACTERS(dump_path), "%s:/BlueDump/WAD/00010008-%s v%u", DEVICE(0), GetASCII(low), get_version(titleID));
+						snprintf(dump_path, MAX_CHARACTERS(dump_path), "%s:/YABDM/WAD/00010008-%s v%u", DEVICE(0), GetASCII(low), get_version(titleID));
 					} else {
-						snprintf(dump_path, MAX_CHARACTERS(dump_path), "%s:/BlueDump/WAD/%s", DEVICE(0), ent[cline].titlename);
+						snprintf(dump_path, MAX_CHARACTERS(dump_path), "%s:/YABDM/WAD/%s", DEVICE(0), ent[cline].titlename);
 					}
 				}
 				
@@ -2697,7 +2697,7 @@ void dump_menu_sd(char *cnt_path)
 	}
 	
 	char dump_path[100];
-	snprintf(dump_path, MAX_CHARACTERS(dump_path), "%s:/BlueDump/WAD/%s - %.4s (content.bin)", DEVICE(0), RemoveIllegalCharacters(read_content_bin_name(cnt_bin, false)), cnt_path+22);
+	snprintf(dump_path, MAX_CHARACTERS(dump_path), "%s:/YABDM/WAD/%s - %.4s (content.bin)", DEVICE(0), RemoveIllegalCharacters(read_content_bin_name(cnt_bin, false)), cnt_path+22);
 	rewind(cnt_bin);
 	
 	if (for_tik && for_tmd)
@@ -3042,10 +3042,10 @@ void create_name_list(char cpath[ISFS_MAXPATH + 1], dirent_t* ent, int lcnt)
 	}
 }
 
-void bluedump_loop(void)
+void yabdm_loop(void)
 {
 	reset_log();
-	logfile("BlueDump MOD v%s - Logfile.\n", VERSION);
+	logfile("Yet Another BlueDump MOD v%s - Logfile.\n", VERSION);
 	logfile("SDmnt(%d), USBmnt(%d), isSD(%d).\n", SDmnt, USBmnt, isSD);
 	logfile("Using IOS%u v%u.\n\n", IOS_GetVersion(), IOS_GetRevision());
 	

@@ -141,7 +141,7 @@ void printheadline()
 	int rows, cols;
 	CON_GetMetrics(&cols, &rows);
 	
-	printf("BlueDump MOD v%s.", VERSION);
+	printf("Yet Another BlueDump MOD v%s.", VERSION);
 	
 	char buf[64];
 	sprintf(buf, "IOS%u (v%u)", IOS_GetVersion(), IOS_GetRevision());
@@ -517,9 +517,9 @@ void reset_log()
 {
 	if (isSD)
 	{
-		remove("sd:/BlueDump.log");
+		remove("sd:/YABDM.log");
 	} else {
-		remove("usb:/BlueDump.log");
+		remove("usb:/YABDM.log");
 	}
 }
 
@@ -535,9 +535,9 @@ void logfile(const char *format, ...)
 		
 		if (isSD)
 		{
-			f = fopen("sd:/BlueDump.log", "a");
+			f = fopen("sd:/YABDM.log", "a");
 		} else {
-			f = fopen("usb:/BlueDump.log", "a");
+			f = fopen("usb:/YABDM.log", "a");
 		}
 		
 		if (!f) return;
