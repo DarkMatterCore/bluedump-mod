@@ -519,7 +519,7 @@ char *get_name(u64 titleid, bool get_description)
 	char *temp;
 	u32 high = TITLE_UPPER(titleid);
 	
-	if (high == 0x00010000)
+	if (high == 0x00010000 && TITLE_LOWER(titleid) != 0x48415a41)
 	{
 		temp = read_name_from_banner_bin(titleid, get_description);
 	} else
@@ -1844,7 +1844,7 @@ void browser(char cpath[ISFS_MAXPATH + 1], dirent_t* ent, int cline, int lcnt)
 		printf("No files/directories found!");
 		printf("\nPress B to go back to the previous dir.");
 	} else {
-		for(i = (cline / 15)*15; i < lcnt && i < (cline / 15)*15+15; i++)
+		for(i = (cline / 14)*14; i < lcnt && i < (cline / 14)*14+14; i++)
 		{
 			if ((strncmp(cpath, "/title", 6) == 0 && strlen(cpath) == 6) || ent[i].function == TYPE_IOS)
 			{
@@ -2538,7 +2538,7 @@ void dump_menu(char *cpath, char *tmp, int cline, dirent_t *ent)
 	switch(selection)
 	{
 		case 0: // Backup savedata
-			if (ent[cline].function == TYPE_SAVEDATA || ent[cline].function == TYPE_TITLE || ent[cline].function == TYPE_GAMECHAN)
+			if ((ent[cline].function == TYPE_SAVEDATA && strncmp(ent[cline].name, "48415a41", 8) != 0) || ent[cline].function == TYPE_TITLE || ent[cline].function == TYPE_GAMECHAN)
 			{
 				printf("\n\nBacking up savedata... \n");
 				logfile("Backing up savedata... \n");
@@ -2552,7 +2552,7 @@ void dump_menu(char *cpath, char *tmp, int cline, dirent_t *ent)
 			}
 			break;
 		case 1: // Restore savedata
-			if (ent[cline].function == TYPE_SAVEDATA || ent[cline].function == TYPE_TITLE || ent[cline].function == TYPE_GAMECHAN)
+			if ((ent[cline].function == TYPE_SAVEDATA && strncmp(ent[cline].name, "48415a41", 8) != 0) || ent[cline].function == TYPE_TITLE || ent[cline].function == TYPE_GAMECHAN)
 			{
 				printf("\n\nRestoring savedata... \n");
 				logfile("Restoring savedata... \n");
@@ -2566,9 +2566,11 @@ void dump_menu(char *cpath, char *tmp, int cline, dirent_t *ent)
 			}
 			break;	
 		case 2: // Backup to WAD
-			if (ent[cline].function == TYPE_SAVEDATA || ent[cline].function == TYPE_OTHER)
+			/* Workaround for HAZA (00010000-48415a41) */
+			/* This title is responsible for changing the Photo Channel v1.0 placeholder data in the System Menu to the v1.1 */
+			if ((ent[cline].function == TYPE_SAVEDATA && strncmp(ent[cline].name, "48415a41", 8) != 0) || ent[cline].function == TYPE_OTHER)
 			{
-				printf("This is not a title! Use the savedata functions for this.\n");
+				printf("\n\nThis is not a title! Use the savedata functions for this.\n");
 			} else {
 				logfile("\nCreating WAD...\n");
 				
@@ -2582,6 +2584,9 @@ void dump_menu(char *cpath, char *tmp, int cline, dirent_t *ent)
 				
 				switch (ent[cline].function)
 				{
+					case TYPE_SAVEDATA:
+						titleID = TITLE_ID(0x00010000, strtoll(ent[cline].name, NULL, 16));
+						break;
 					case TYPE_TITLE:
 						titleID = TITLE_ID(0x00010001, strtoll(ent[cline].name, NULL, 16));
 						break;
@@ -2604,7 +2609,7 @@ void dump_menu(char *cpath, char *tmp, int cline, dirent_t *ent)
 				
 				u32 low = TITLE_LOWER(titleID);
 				
-				if (ent[cline].function == TYPE_TITLE || ent[cline].function == TYPE_SYSTITLE || ent[cline].function == TYPE_GAMECHAN || ent[cline].function == TYPE_DLC)
+				if (ent[cline].function == TYPE_SAVEDATA || ent[cline].function == TYPE_TITLE || ent[cline].function == TYPE_SYSTITLE || ent[cline].function == TYPE_GAMECHAN || ent[cline].function == TYPE_DLC)
 				{
 					/* Workaround for HBC 1.0.7 - 1.1.0 */
 					if (low != 0xAF1BF516)
@@ -2613,9 +2618,7 @@ void dump_menu(char *cpath, char *tmp, int cline, dirent_t *ent)
 					} else {
 						snprintf(dump_path, MAX_CHARACTERS(dump_path), "%s:/YABDM/WAD/Homebrew Channel - AF1BF516", DEVICE(0));
 					}
-				} else
-				if (ent[cline].function == TYPE_IOS || ent[cline].function == TYPE_HIDDEN)
-				{
+				} else {
 					if (strncmp(ent[cline].titlename, "Unknown Hidden Channel", 22) == 0)
 					{
 						snprintf(dump_path, MAX_CHARACTERS(dump_path), "%s:/YABDM/WAD/00010008-%s v%u", DEVICE(0), GetASCII(low), get_version(titleID));
@@ -2764,7 +2767,7 @@ void sd_browser()
 	
 	FILE *f;
 	
-	/* Create name list - Speeds up directory browsing*/
+	/* Create name list - Speeds up directory browsing */
 	for (i = 0; i < lcnt; i++)
 	{
 		if (ent[i].type == DIRENT_T_DIR)

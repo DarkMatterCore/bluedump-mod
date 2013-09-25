@@ -282,7 +282,7 @@ int ahbprot_menu()
 		{
 			/* This is a very, very weird error */
 			
-			printf(" ERROR!\n\n");
+			printf("ERROR!\n\n");
 			printf("\tUnable to load the initial patches. Maybe the loaded IOS isn't\n");
 			printf("\tvulnerable for an unknown reason.\n");
 			sleep(4);
