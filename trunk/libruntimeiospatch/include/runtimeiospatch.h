@@ -7,18 +7,19 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU General Public License 2.0 for more details.
 
-// Copyright (C) 2010	Joseph Jordan <joe.ftpii@psychlaw.com.au>
-// Copyright (C) 2012	damysteryman
-// Copyright (C) 2012	Christopher Bratusek <nano@tuxfamily.org>
+// Copyright (C) 2010		Joseph Jordan <joe.ftpii@psychlaw.com.au>
+// Copyright (C) 2012-2013	damysteryman
+// Copyright (C) 2012-2013	Christopher Bratusek <nano@tuxfamily.org>
+// Copyright (C) 2013		DarkMatterCore
+// Copyright (C) 2014		megazig
 
-
-#ifndef _RUNTIMEIOSPATCH_H_
-#define _RUNTIMEIOSPATCH_H_
+#ifndef __RUNTIMEIOSPATCH_H__
+#define __RUNTIMEIOSPATCH_H__
 
 /**
  * Version information for Libruntimeiospatch.
  */
-#define LIB_RUNTIMEIOSPATCH_VERSION "1.3.0"
+#define LIB_RUNTIMEIOSPATCH_VERSION "1.5.1"
 
 //==============================================================================
 // HW_RVL header
@@ -43,6 +44,12 @@
 extern "C" {
 #endif
 /* __cplusplus */
+
+//==============================================================================
+// Extra standard declarations
+//==============================================================================
+typedef signed int s32;
+//==============================================================================
 
 //==============================================================================
 // Patchsets:

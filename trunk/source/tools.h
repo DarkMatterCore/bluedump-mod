@@ -6,7 +6,7 @@
 #include <malloc.h>
 #include <runtimeiospatch.h>
 
-#define VERSION "0.8"
+#define VERSION "0.9"
 
 // Values for DetectInput
 #define DI_BUTTONS_DOWN		0
@@ -14,9 +14,10 @@
 
 #define resetscreen() printf("\x1b[2J")
 
-bool SDmnt, USBmnt, isSD, __debug;
+bool SDmnt, USBmnt, isSD, __debug, vwii;
 
 void Reboot();
+inline bool IsWiiU();
 u32 DetectInput(u8 DownOrHeld);
 void Init_Console();
 void printheadline();

@@ -28,7 +28,9 @@ int main(int argc, char* argv[])
 	
 	printheadline();
 	
+	vwii = IsWiiU();
 	__debug = false;
+	
 	for (i = 1; i < argc; i++)
 	{
 		if (CHECK_ARG("debug="))

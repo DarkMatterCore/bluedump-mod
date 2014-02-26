@@ -3,7 +3,7 @@
  *                                                                             *
  * Copyright (c) 2009 Nicksasa                                                 *
  *                                                                             *
- * Modified by DarkMatterCore [PabloACZ] (2013)                                *
+ * Modified by DarkMatterCore [PabloACZ] (2013-2014)                                *
  *                                                                             *
  * Distributed under the terms of the GNU General Public License (v2)          *
  * See http://www.gnu.org/licenses/gpl-2.0.txt for more info.                  *
@@ -30,7 +30,9 @@
 
 const u8 commonkey[16] = { 0xeb, 0xe4, 0x2a, 0x22, 0x5e, 0x85, 0x93, 0xe4, 0x48, 0xd9, 0xc5, 0x45, 0x73, 0x81, 0xaa, 0xf7 };
 const u8 sd_key[16] = { 0xab, 0x01, 0xb9, 0xd8, 0xe1, 0x62, 0x2b, 0x08, 0xaf, 0xba, 0xd8, 0x4d, 0xbf, 0xc2, 0xa5, 0x5d };
-//const u8 sd_iv[16] = { 0x21, 0x67, 0x12, 0xe6, 0xaa, 0x1f, 0x68, 0x9f, 0x95, 0xc5, 0xa2, 0x23, 0x24, 0xdc, 0x6a, 0x98 };
+const u8 sd_iv[16] = { 0x21, 0x67, 0x12, 0xe6, 0xaa, 0x1f, 0x68, 0x9f, 0x95, 0xc5, 0xa2, 0x23, 0x24, 0xdc, 0x6a, 0x98 };
+
+bool ftik = false, ftmd = false, change_region = false;
 
 bool MakeDir(const char *Path)
 {
@@ -55,16 +57,15 @@ bool MakeDir(const char *Path)
 	return true;
 }
 
-bool create_folders(char *path)
 // Creates the required folders for a filepath
 // Example: Input "sd:/YABDM/00000001/test.bin" creates "sd:/YABDM" and "sd:/YABDM/00000001"
+
+bool create_folders(char *path)
 {
 	char *last = strrchr(path, '/');
 	char *next = strchr(path,'/');
-	if (last == NULL)
-	{
-		return true;
-	}
+	if (last == NULL) return true;
+	
 	char buf[256];
 	
 	while (next != last)
@@ -73,11 +74,9 @@ bool create_folders(char *path)
 		strncpy(buf, path, (u32)(next-path));
 		buf[(u32)(next-path)] = 0;
 		
-		if (!MakeDir(buf))
-		{
-			return false;
-		}
+		if (!MakeDir(buf)) return false;
 	}
+	
 	return true;
 }
 
@@ -111,45 +110,42 @@ int isdir(char *path)
 	
 	res = ISFS_ReadDir(path, NULL, &num);
 	
-	if(res < 0) return 0;
+	if (res < 0) return 0;
 	
 	return 1;
 }
 
 u16 get_version(u64 titleid)
 {
-	char buffer[64];
-	s32 cfd;
 	s32 ret;
+	u32 tmd_size;
 	u16 version;
-	u8 *tmdbuf = (u8*)memalign(32, 1024);
+	signed_blob *tmdbuf = NULL;
 	
-	snprintf(buffer, MAX_CHARACTERS(buffer), "/title/%08x/%08x/content/title.tmd", TITLE_UPPER(titleid), TITLE_LOWER(titleid));
-	
-	logfile("get_version path: %s\n", buffer);
-	cfd = ISFS_Open(buffer, ISFS_OPEN_READ);
-    if (cfd < 0)
-	{
-		//printf("ISFS_OPEN for '%s' failed (%d).\n", buffer, cfd);
-		logfile("ISFS_OPEN for '%s' failed (%d).\n", buffer, cfd);
-		Unmount_Devices();
-		Reboot();
-	}
-	
-    ret = ISFS_Read(cfd, tmdbuf, 1024);
+	ret = ES_GetStoredTMDSize(titleid, &tmd_size);
 	if (ret < 0)
 	{
-		//printf("ISFS_Read for '%s' failed (%d).\n", buffer, ret);
-		logfile("ISFS_Read for '%s' failed (%d).\n", buffer, ret);
-		ISFS_Close(cfd);
+		//printf("ES_GetStoredTMDSize for '%08x-%08x' failed (%d).\n", TITLE_UPPER(titleid), TITLE_LOWER(titleid), ret);
+		logfile("ES_GetStoredTMDSize for '%08x-%08x' failed (%d).\n", TITLE_UPPER(titleid), TITLE_LOWER(titleid), ret);
 		Unmount_Devices();
 		Reboot();
 	}
-
-    ISFS_Close(cfd);
-	memcpy(&version, tmdbuf+0x1DC, 2);
+	
+	tmdbuf = memalign(32, tmd_size);
+	
+	ret = ES_GetStoredTMD(titleid, tmdbuf, tmd_size);
+	if (ret < 0)
+	{
+		//printf("ES_GetStoredTMD for '%08x-%08x' failed (%d).\n", TITLE_UPPER(titleid), TITLE_LOWER(titleid), ret);
+		logfile("ES_GetStoredTMD for '%08x-%08x' failed (%d).\n", TITLE_UPPER(titleid), TITLE_LOWER(titleid), ret);
+		Unmount_Devices();
+		Reboot();
+	}
+	
+	version = ((tmd*)SIGNATURE_PAYLOAD(tmdbuf))->title_version;
 	logfile("version = %u\n", version);
 	free(tmdbuf);
+	
 	return version;
 }
 
@@ -157,43 +153,48 @@ s32 getdir_info(char *path, dirent_t **ent, u32 *cnt)
 {
 	s32 res;
 	u32 num = 0;
-	char pbuf[ISFS_MAXPATH + 1];
+	char pbuf[ISFS_MAXPATH + 1], ebuf[ISFS_MAXPATH + 1];
 	
 	int i, j, k;
 	
+	/* Get number of entries in this directory */
 	res = ISFS_ReadDir(path, NULL, &num);
-	if(res != ISFS_OK)
+	if (res != ISFS_OK)
 	{
 		//printf("Error: could not get dir entry count! (result: %d)\n", res);
 		logfile("Error: could not get dir entry count! (result: %d)\n", res);
 		return -1;
 	}
 	
+	/* Allocate memory for the name list */
 	char *nbuf = (char *)allocate_memory((ISFS_MAXPATH + 1) * num);
-	char ebuf[ISFS_MAXPATH + 1];
-	
-	if(nbuf == NULL)
+	if (nbuf == NULL)
 	{
 		//printf("Error: could not allocate buffer for name list!\n");
 		logfile("Error: could not allocate buffer for name list!\n");
 		return -1;
 	}
 	
+	/* Read entries */
 	res = ISFS_ReadDir(path, nbuf, &num);
-	if(res != ISFS_OK)
+	if (res != ISFS_OK)
 	{
 		//printf("Error: could not get name list! (result: %d)\n", res);
 		logfile("Error: could not get name list! (result: %d)\n", res);
 		return -1;
 	}
 	
+	/* Save number of entries */
 	*cnt = num;
+	
+	/* Avoid possible buffer overflow by freeing the entry buffer before reusing it */
 	if (*ent != NULL) free(*ent);
 	*ent = allocate_memory(sizeof(dirent_t) * num);
+	
 	logfile("\nISFS DIR list of '%s':\n\n", path);
 	for(i = 0, k = 0; i < num; i++)
 	{
-		for(j = 0; nbuf[k] != 0; j++, k++) ebuf[j] = nbuf[k];
+		for (j = 0; nbuf[k] != 0; j++, k++) ebuf[j] = nbuf[k];
 		ebuf[j] = 0;
 		k++;
 		
@@ -202,42 +203,42 @@ s32 getdir_info(char *path, dirent_t **ent, u32 *cnt)
 		logfile("%s\n", pbuf);
 		(*ent)[i].type = ((isdir(pbuf) == 1) ? DIRENT_T_DIR : DIRENT_T_FILE);
 		
-		if(strncmp(path, "/title/00010000", 15) == 0)
+		if (strncmp(path, "/title/00010000", 15) == 0)
 		{
 			(*ent)[i].function = TYPE_SAVEDATA;
 		}
 		
-		if(strncmp(path, "/title/00010001", 15) == 0)
+		if (strncmp(path, "/title/00010001", 15) == 0)
 		{
 			(*ent)[i].function = TYPE_TITLE;
 		}
 		
-		if(strncmp(path, "/title/00000001", 15) == 0)
+		if (strncmp(path, "/title/00000001", 15) == 0)
 		{
 			(*ent)[i].function = TYPE_IOS;
 		}
 		
-		if(strncmp(path, "/title/00010002", 15) == 0)
+		if (strncmp(path, "/title/00010002", 15) == 0)
 		{
 			(*ent)[i].function = TYPE_SYSTITLE;
 		}
 		
-		if(strncmp(path, "/title/00010004", 15) == 0)
+		if (strncmp(path, "/title/00010004", 15) == 0)
 		{
 			(*ent)[i].function = TYPE_GAMECHAN;
 		}
 		
-		if(strncmp(path, "/title/00010005", 15) == 0)
+		if (strncmp(path, "/title/00010005", 15) == 0)
 		{
 			(*ent)[i].function = TYPE_DLC;
 		}
 		
-		if(strncmp(path, "/title/00010008", 15) == 0)
+		if (strncmp(path, "/title/00010008", 15) == 0)
 		{
 			(*ent)[i].function = TYPE_HIDDEN;
 		}
 		
-		if((strncmp(ebuf, "content", 7) == 0) || (strncmp(ebuf, "data", 4) == 0) || \
+		if ((strncmp(ebuf, "content", 7) == 0) || (strncmp(ebuf, "data", 4) == 0) || \
 			(strstr(path, "content") != 0) || (strstr(path, "data") != 0))
 		{
 			(*ent)[i].function = TYPE_OTHER;
@@ -245,42 +246,54 @@ s32 getdir_info(char *path, dirent_t **ent, u32 *cnt)
 	}
 	
 	qsort(*ent, *cnt, sizeof(dirent_t), __FileCmp);
-	
 	free(nbuf);
+	
 	return 0;
 }
 
-u8 imet[4] = { 0x49, 0x4D, 0x45, 0x54 };
-u8 wibn[4] = { 0x57, 0x49, 0x42, 0x4E };
+s32 __convertWiiString(char *str, u8 *data, u32 cnt)
+{
+	u32 i;
+	
+	for(i = 0; i < cnt; data += 2)
+	{
+		u16 *chr = (u16*)data;
+		if (*chr == 0)
+		{
+			break;
+		} else {
+			str[i] = *chr;
+		}
+		
+		i++;
+	}
+	str[i] = 0;
+
+	return 0;
+}
+
+u8 wibn_magic[4] = { 0x57, 0x49, 0x42, 0x4E };
+u8 imet_magic[4] = { 0x49, 0x4D, 0x45, 0x54 };
 char titlename[64];
 
-char *read_name(u64 titleid, void *magic_word, u32 magic_offset, u32 name_offset, u32 desc_offset, bool get_description)
+char *read_title_name(u64 titleid, bool get_description)
 {
+	bool is_dlc;
 	s32 ret, cfd;
 	u32 num, cnt;
 	dirent_t *list = NULL;
 	char path[ISFS_MAXPATH] ATTRIBUTE_ALIGN(32);
 	
-	u8 *buffer = allocate_memory(0x150);
-	if (buffer == NULL)
+	u8 *buffer = allocate_memory(sizeof(IMET));
+	if (!buffer)
 	{
 		//printf("Error allocating memory for buffer.\n");
 		logfile("Error allocating memory for buffer.\n");
-		free(list);
 		Unmount_Devices();
 		Reboot();
 	}
 	
-	fstats *status = allocate_memory(sizeof(fstats));
-	if(status == NULL) 
-	{
-		//printf("Error allocating memory for status.\n"); 
-		logfile("Error allocating memory for status.\n");
-		free(list);
-		free(buffer);
-		Unmount_Devices();
-		Reboot();
-	}
+	memset(buffer, 0x00, sizeof(IMET));
 	
 	snprintf(path, MAX_CHARACTERS(path), "/title/%08x/%08x/content", TITLE_UPPER(titleid), TITLE_LOWER(titleid));
 	snprintf(titlename, MAX_CHARACTERS(titlename), "Channel/Title deleted from Wii Menu? (couldn't get info)");
@@ -290,17 +303,16 @@ char *read_name(u64 titleid, void *magic_word, u32 magic_offset, u32 name_offset
 	{
 		//printf("Reading folder of the title failed.\n");
 		logfile("Reading folder of the title failed.\n");
-		free(list);
-		free(buffer);
-		free(status);
+		if (list) free(list);
 		return titlename;
 	}
 	
 	for(cnt = 0; cnt < num; cnt++)
 	{
+		/* Only open files with the ".app" extension */
 		if (stricmp(list[cnt].name + strlen(list[cnt].name) - 4, ".app") == 0) 
 		{
-			memset(buffer, 0x00, 0x150);
+			memset(buffer, 0x00, 4);
 			snprintf(path, MAX_CHARACTERS(path), "/title/%08x/%08x/content/%s", TITLE_UPPER(titleid), TITLE_LOWER(titleid), list[cnt].name);
 			
 			cfd = ISFS_Open(path, ISFS_OPEN_READ);
@@ -311,124 +323,144 @@ char *read_name(u64 titleid, void *magic_word, u32 magic_offset, u32 name_offset
 				continue;
 			}
 			
-			ret = ISFS_GetFileStats(cfd, status);
+			ISFS_Seek(cfd, 0x40, 0);
+			
+			ret = ISFS_Read(cfd, buffer, 4);
 			if (ret < 0)
 			{
-				//printf("\nISFS_GetFileStats(cfd) returned %d.\n", ret);
-				logfile("ISFS_GetFileStats(cfd) returned %d.\n", ret);
+				//printf("ISFS_Read(wibn_magic) returned %d.\n", ret);
+				logfile("ISFS_Read(wibn_magic) returned %d.\n", ret);
 				ISFS_Close(cfd);
 				continue;
 			}
 			
-			if (status->file_length > 0x150)
+			if (memcmp(buffer, wibn_magic, 4) == 0)
 			{
-				ret = ISFS_Read(cfd, buffer, 0x150);
+				is_dlc = true;
+				ISFS_Seek(cfd, 0x40, 0);
+			} else {
+				ISFS_Seek(cfd, 0x80, 0);
+				
+				ret = ISFS_Read(cfd, buffer, 4);
 				if (ret < 0)
 				{
-					//printf("ISFS_Read for '%s' failed (%d).\n", path, ret);
-					logfile("ISFS_Read for '%s' failed (%d).\n", path, ret);
+					//printf("ISFS_Read(imet_magic) returned %d.\n", ret);
+					logfile("ISFS_Read(imet_magic) returned %d.\n", ret);
 					ISFS_Close(cfd);
 					continue;
 				}
 				
-				ISFS_Close(cfd);
-				
-				if (memcmp(&(buffer[magic_offset]), magic_word, 4) == 0)
+				if (memcmp(buffer, imet_magic, 4) == 0)
 				{
-					free(status);
-					
-					int i = 0, length = 0;
-					
-					while (buffer[name_offset + length*2] != 0x00) length++;
-					
-					char *out = allocate_memory(length+1);
-					if(out == NULL)
-					{
-						//printf("Error allocating memory for title name.\n");
-						logfile("Error allocating memory for title name.\n");
-						free(list);
-						free(buffer);
-						Unmount_Devices();
-						Reboot();
-					}
-					
-					memset(out, 0x00, length+1);
-					
-					while (buffer[name_offset + i*2] != 0x00)
-					{
-						out[i] = (char) buffer[name_offset + i*2];
-						i++;
-					}
-					
-					snprintf(titlename, MAX_CHARACTERS(titlename), "%s", out);
-					
-					if (get_description)
-					{
-						i = 0;
-						length = 0;
-						
-						while(buffer[desc_offset + length*2] != 0x00) length++;
-						
-						char *out2 = allocate_memory(length+1);
-						if(out2 == NULL)
-						{
-							//printf("Error allocating memory for title description.\n");
-							logfile("Error allocating memory for title description.\n");
-							free(list);
-							free(buffer);
-							free(out);
-							Unmount_Devices();
-							Reboot();
-						}
-						
-						memset(out2, 0x00, length+1);
-						
-						while (buffer[desc_offset + i*2] != 0x00)
-						{
-							out2[i] = (char) buffer[desc_offset + i*2];
-							i++;
-						}
-						
-						if ((strlen(out2) != 0) && (strcmp(out2, " ") != 0))
-						{
-							snprintf(titlename, MAX_CHARACTERS(titlename), "%s [%s]", out, out2);
-						}
-						
-						free(out2);
-					}
-					
+					is_dlc = false;
+					ISFS_Seek(cfd, 0, 0);
+				} else {
+					/* No dice, check the next file */
+					ISFS_Close(cfd);
+					continue;
+				}
+			}
+			
+			ret = ISFS_Read(cfd, buffer, (is_dlc ? sizeof(WIBN) : sizeof(IMET)));
+			if (ret < 0)
+			{
+				//printf("ISFS_Read(buffer) returned %d.\n", ret);
+				logfile("ISFS_Read(buffer) returned %d.\n", ret);
+				ISFS_Close(cfd);
+				free(list);
+				free(buffer);
+				return titlename;
+			}
+			
+			ISFS_Close(cfd);
+			
+			if (is_dlc)
+			{
+				WIBN *dlc_data = allocate_memory(sizeof(WIBN));
+				if (!dlc_data)
+				{
+					//printf("Error allocating memory for dlc_data.\n");
+					logfile("Error allocating memory for dlc_data.\n");
+					ISFS_Close(cfd);
 					free(list);
 					free(buffer);
-					free(out);
-					return titlename;
+					Unmount_Devices();
+					Reboot();
 				}
+				
+				memcpy(dlc_data, buffer, sizeof(WIBN));
+				
+				/* Convert string to ASCII */
+				__convertWiiString(titlename, dlc_data->name, 0x40);
+				
+				if (get_description)
+				{
+					char description[64];
+					__convertWiiString(description, dlc_data->desc, 0x40);
+					if (strlen(description) > 1) snprintf(titlename, MAX_CHARACTERS(titlename), "%s [%s]", titlename, description);
+				}
+				
+				free(dlc_data);
 			} else {
-				ISFS_Close(cfd);
+				u32 i;
+				char str[20][42];
+				
+				IMET *banner_data = allocate_memory(sizeof(IMET));
+				if (!banner_data)
+				{
+					//printf("Error allocating memory for banner_data.\n");
+					logfile("Error allocating memory for banner_data.\n");
+					ISFS_Close(cfd);
+					free(list);
+					free(buffer);
+					Unmount_Devices();
+					Reboot();
+				}
+				
+				memcpy(banner_data, buffer, sizeof(IMET));
+				
+				/* Convert strings to ASCII */
+				for (i = 0; i < 20; i++) __convertWiiString(str[i], banner_data->names[i], 0x2A);
+				
+				/* Try to get the appropiate string for the console language */
+				if (strlen(str[lang * 2]) > 1)
+				{
+					if (get_description && strlen(str[(lang * 2) + 1]) > 1)
+					{
+						snprintf(titlename, MAX_CHARACTERS(titlename), "%s [%s]", str[lang * 2], str[(lang * 2) + 1]);
+					} else {
+						snprintf(titlename, MAX_CHARACTERS(titlename), "%s", str[lang * 2]);
+					}
+				} else {
+					/* Default to English */
+					if (get_description && strlen(str[3]) > 1)
+					{
+						snprintf(titlename, MAX_CHARACTERS(titlename), "%s [%s]", str[2], str[3]);
+					} else {
+						snprintf(titlename, MAX_CHARACTERS(titlename), "%s", str[2]);
+					}
+				}
+				
+				free(banner_data);
 			}
+			
+			free(list);
+			free(buffer);
+			
+			return titlename;
 		}
 	}
 	
 	free(list);
 	free(buffer);
-	free(status);
 	
 	return titlename;
 }
 
-char *read_name_from_banner_bin(u64 titleid, bool get_description)
+char *read_save_name(u64 titleid, bool get_description)
 {
 	s32 cfd, ret;
     char path[ISFS_MAXPATH] ATTRIBUTE_ALIGN(32);
-	int i = 0, length = 0;
-	
-	u8 *buffer = allocate_memory(160);
-	if (buffer == NULL)
-	{
-		//printf("Error allocating memory for buffer.\n");
-		logfile("Error allocating memory for buffer.\n");
-		Unmount_Devices();
-		Reboot();
-	}
 	
 	snprintf(path, MAX_CHARACTERS(path), "/title/%08x/%08x/data/banner.bin", TITLE_UPPER(titleid), TITLE_LOWER(titleid));
 	snprintf(titlename, MAX_CHARACTERS(titlename), "Channel/Title deleted from Wii Menu? (couldn't get info)");
@@ -441,76 +473,39 @@ char *read_name_from_banner_bin(u64 titleid, bool get_description)
 		return titlename;
 	}
 	
-	ret = ISFS_Read(cfd, buffer, 160);
+	WIBN *save_data = allocate_memory(sizeof(WIBN));
+	if (save_data == NULL)
+	{
+		//printf("Error allocating memory for buffer.\n");
+		logfile("Error allocating memory for buffer.\n");
+		Unmount_Devices();
+		Reboot();
+	}
+	
+	ret = ISFS_Read(cfd, save_data, sizeof(WIBN));
 	if (ret < 0)
 	{
 		//printf("ISFS_Read for '%s' failed (%d).\n", path, ret);
 		logfile("ISFS_Read for '%s' failed (%d).\n", path, ret);
 		ISFS_Close(cfd);
-		free(buffer);
+		free(save_data);
 		return titlename;
 	}
 	
-	ISFS_Close(cfd);	
+	ISFS_Close(cfd);
 	
-	while(buffer[0x21 + length*2] != 0x00) length++;
-	
-	char *out = allocate_memory(length+1);
-	if(out == NULL)
-	{
-		//printf("Error allocating memory for banner.bin name.\n");
-		logfile("Error allocating memory for banner.bin name.\n");
-		free(buffer);
-		Unmount_Devices();
-		Reboot();
-	}
-	
-	memset(out, 0x00, length+1);
-	
-	while (buffer[0x21 + i*2] != 0x00)
-	{
-		out[i] = (char) buffer[0x21 + i*2];
-		i++;
-	}
-	
-	snprintf(titlename, MAX_CHARACTERS(titlename), "%s", out);
+	/* Convert string to ASCII */
+	__convertWiiString(titlename, save_data->name, 0x40);
 	
 	if (get_description)
 	{
-		i = 0;
-		length = 0;
-		
-		while(buffer[0x61 + length*2] != 0x00) length++;
-		
-		char *out2 = allocate_memory(length+1);
-		if(out2 == NULL)
-		{
-			//printf("Error allocating memory for banner.bin description.\n");
-			logfile("Error allocating memory for banner.bin description.\n");
-			free(buffer);
-			free(out);
-			Unmount_Devices();
-			Reboot();
-		}
-		
-		memset(out2, 0x00, length+1);
-		
-		while (buffer[0x61 + i*2] != 0x00)
-		{
-			out2[i] = (char) buffer[0x61 + i*2];
-			i++;
-		}
-		
-		if ((strlen(out2) != 0) && (strcmp(out2, " ") != 0))
-		{
-			snprintf(titlename, MAX_CHARACTERS(titlename), "%s [%s]", out, out2);
-		}
-		
-		free(out2);
+		char description[64];
+		__convertWiiString(description, save_data->desc, 0x40);
+		if (strlen(description) > 1) snprintf(titlename, MAX_CHARACTERS(titlename), "%s [%s]", titlename, description);
 	}
 	
-	free(buffer);
-	free(out);
+	free(save_data);
+	
 	return titlename;
 }
 
@@ -521,28 +516,25 @@ char *get_name(u64 titleid, bool get_description)
 	
 	if (high == 0x00010000 && TITLE_LOWER(titleid) != 0x48415a41)
 	{
-		temp = read_name_from_banner_bin(titleid, get_description);
-	} else
-	if (high == 0x00010005)
-	{
-		temp = read_name(titleid, wibn, 0x40, 0x61, 0xA1, get_description);
+		temp = read_save_name(titleid, get_description);
 	} else {
-		temp = read_name(titleid, imet, 0x80, 0xF1, 0x11B, get_description);
+		temp = read_title_name(titleid, get_description);
 		if (strncmp(temp, "Channel/Title deleted from Wii Menu? (couldn't get info)", 56) == 0)
 		{
-			temp = read_name_from_banner_bin(titleid, get_description);
+			temp = read_save_name(titleid, get_description);
 		}
 	}
 	
 	return temp;
 }
 
-char *read_content_bin_name(FILE *cnt_bin, bool get_description)
+char *read_cntbin_name(FILE *cnt_bin, bool get_description)
 {
+	u32 i;
 	int ret;
-	static u8 iv[16];
+	char str[20][42];
 	
-	u8 *buf = malloc(0x60);
+	IMET *buf = allocate_memory(sizeof(IMET));
 	if (buf == NULL)
 	{
 		//printf("\nError allocating memory for buf.\n");
@@ -552,11 +544,9 @@ char *read_content_bin_name(FILE *cnt_bin, bool get_description)
 		Reboot();
 	}
 	
-	fseek(cnt_bin, 0xE0, SEEK_SET);
-	fread(iv, 16, 1, cnt_bin);
-	fread(buf, 0x60, 1, cnt_bin);
+	fread(buf, sizeof(IMET), 1, cnt_bin);
 	
-	ret = aes_128_cbc_decrypt(sd_key, iv, buf, 0x60);
+	ret = aes_128_cbc_decrypt(sd_key, sd_iv, (u8*)buf, sizeof(IMET));
 	if (ret < 0)
 	{
 		//printf("\nError decrypting data.\n");
@@ -566,75 +556,36 @@ char *read_content_bin_name(FILE *cnt_bin, bool get_description)
 		return titlename;
 	}
 	
-	int i = 0, length = 0;
+	/* Convert strings to ASCII */
+	for (i = 0; i < 20; i++) __convertWiiString(str[i], buf->names[i], 0x2A);
 	
-	while (buf[1 + length*2] != 0x00) length++;
-	
-	char *out = malloc(length+1);
-	if (out == NULL)
+	/* Try to get the appropiate string for the console language */
+	if (strlen(str[lang * 2]) > 1)
 	{
-		//printf("Error allocating memory for title name.\n");
-		logfile("Error allocating memory for title name.\n");
-		free(buf);
-		fclose(cnt_bin);
-		Unmount_Devices();
-		Reboot();
-	}
-	
-	memset(out, 0x00, length+1);
-	
-	while (buf[1 + i*2] != 0x00)
-	{
-		out[i] = (char) buf[1 + i*2];
-		i++;
-	}
-	
-	snprintf(titlename, MAX_CHARACTERS(titlename), "%s", out);
-	
-	if (get_description)
-	{
-		i = 0;
-		length = 0;
-		
-		while(buf[0x2B + length*2] != 0x00) length++;
-		
-		char *out2 = malloc(length+1);
-		if (out2 == NULL)
+		if (get_description && strlen(str[(lang * 2) + 1]) > 1)
 		{
-			//printf("Error allocating memory for title description.\n");
-			logfile("Error allocating memory for title description.\n");
-			free(buf);
-			free(out);
-			fclose(cnt_bin);
-			Unmount_Devices();
-			Reboot();
+			snprintf(titlename, MAX_CHARACTERS(titlename), "%s [%s]", str[lang * 2], str[(lang * 2) + 1]);
+		} else {
+			snprintf(titlename, MAX_CHARACTERS(titlename), "%s", str[lang * 2]);
 		}
-		
-		memset(out2, 0x00, length+1);
-		
-		while (buf[0x2B + i*2] != 0x00)
+	} else {
+		/* Default to English */
+		if (get_description && strlen(str[3]) > 1)
 		{
-			out2[i] = (char) buf[0x2B + i*2];
-			i++;
+			snprintf(titlename, MAX_CHARACTERS(titlename), "%s [%s]", str[2], str[3]);
+		} else {
+			snprintf(titlename, MAX_CHARACTERS(titlename), "%s", str[2]);
 		}
-		
-		if ((strlen(out2) != 0) && (strcmp(out2, " ") != 0))
-		{
-			snprintf(titlename, MAX_CHARACTERS(titlename), "%s [%s]", out, out2);
-		}
-		
-		free(out2);
 	}
 	
 	free(buf);
-	free(out);
+	
 	return titlename;
 }
 
-u32 pad_data(u8 *ptr, u32 len, bool pad_16)
+u32 pad_data(void *ptr, u32 len, bool pad_16)
 {
 	u32 new_size = (pad_16 ? round16(len) : round64(len));
-	
 	u32 diff = new_size - len;
 	
 	if (diff > 0)
@@ -643,7 +594,7 @@ u32 pad_data(u8 *ptr, u32 len, bool pad_16)
 		if (ptr != NULL)
 		{
 			logfile("Memory buffer size reallocated successfully.\n");
-			memset(&(ptr[len]), 0x00, diff);
+			memset(ptr + len, 0x00, diff);
 		} else {
 			printf("\nError reallocating memory buffer.");
 			logfile("Error reallocating memory buffer.");
@@ -659,7 +610,7 @@ u32 pad_data(u8 *ptr, u32 len, bool pad_16)
 s32 read_isfs(char *path, u8 **out, u32 *size)
 {
 	s32 ret, fd;
-	fstats *status;
+	static fstats status ATTRIBUTE_ALIGN(32);
 	
 	fd = ISFS_Open(path, ISFS_OPEN_READ);
 	if (fd < 0)
@@ -669,40 +620,26 @@ s32 read_isfs(char *path, u8 **out, u32 *size)
 		return -1;
 	}
 	
-	status = allocate_memory(sizeof(fstats));
-	if(status == NULL) 
-	{
-		//printf("Error allocating memory for status.\n");
-		logfile("Error allocating memory for status.\n");
-		ISFS_Close(fd);
-		Unmount_Devices();
-		Reboot();
-	}
-	
-	ret = ISFS_GetFileStats(fd, status);
+	ret = ISFS_GetFileStats(fd, &status);
 	if (ret < 0)
 	{
 		//printf("\nISFS_GetFileStats(fd) returned %d.\n", ret);
 		logfile("ISFS_GetFileStats(fd) returned %d.\n", ret);
-		free(status);
 		ISFS_Close(fd);
 		return -1;
 	}
 	
-	u32 fullsize = status->file_length;
-	free(status);
-	
-	if (fullsize == 0)
+	if (status.file_length == 0)
 	{
-		free(status);
 		ISFS_Close(fd);
 		return -1;
 	}
 	
-	logfile("Size = %u bytes.\n", fullsize);
+	*size = status.file_length;
+	logfile("Size = %u bytes.\n", *size);
 	
-	u8 *out2 = allocate_memory(fullsize);
-	if(out2 == NULL) 
+	*out = allocate_memory(*size);
+	if (*out == NULL) 
 	{ 
 		//printf("Error allocating memory for out.\n");
 		logfile("\nError allocating memory for out.\n");
@@ -711,7 +648,7 @@ s32 read_isfs(char *path, u8 **out, u32 *size)
 		Reboot();
 	}
 	
-	u32 blksize, writeindex = 0, restsize = fullsize;
+	u32 blksize, writeindex = 0, restsize = *size;
 	
 	while (restsize > 0)
 	{
@@ -722,12 +659,12 @@ s32 read_isfs(char *path, u8 **out, u32 *size)
 			blksize = restsize;
 		}
 		
-		ret = ISFS_Read(fd, &(out2[writeindex]), blksize);
+		ret = ISFS_Read(fd, *out + writeindex, blksize);
 		if (ret < 0) 
 		{
 			//printf("\nISFS_Read(%d, %d) returned %d.\n", fd, blksize, ret);
 			logfile("\nISFS_Read(%d, %d) returned %d.\n", fd, blksize, ret);
-			free(out2);
+			free(*out);
 			ISFS_Close(fd);
 			return -1;
 		}
@@ -737,31 +674,21 @@ s32 read_isfs(char *path, u8 **out, u32 *size)
 	}
 	
 	ISFS_Close(fd);
-	
-	*out = out2;
-	*size = fullsize;
 	return 0;
 }
 
-void zero_sig(signed_blob *sig, bool wipe_cid_ecdh)
+void zero_sig(signed_blob *sig)
 {
 	u8 *sig_ptr = (u8 *)sig;
 	memset(sig_ptr + 4, 0, SIGNATURE_SIZE(sig)-4);
-	
-	/* Wipe Console ID and ECDH data to avoid installation errors on other Wiis */ 
-	if (wipe_cid_ecdh)
-	{
-		memset(sig_ptr + 0x180, 0, 0x3C);
-		memset(sig_ptr + 0x1D8, 0, 4);
-	}
 }
 
 void brute_tmd(tmd *p_tmd)
 {
 	u16 fill;
-	for (fill=0; fill<65535; fill++)
+	for (fill = 0; fill < 65535; fill++)
 	{
-		p_tmd->fill3=fill;
+		p_tmd->fill3 = fill;
 		sha1 hash;
 		//logfile("\nSHA1(%p, %x, %p)\n", p_tmd, TMD_SIZE(p_tmd), hash);
 		SHA1((u8 *)p_tmd, TMD_SIZE(p_tmd), hash);
@@ -777,9 +704,9 @@ void brute_tmd(tmd *p_tmd)
 void brute_tik(tik *p_tik)
 {
 	u16 fill;
-	for (fill=0; fill<65535; fill++)
+	for (fill = 0; fill < 65535; fill++)
 	{
-		p_tik->padding=fill;
+		p_tik->padding = fill;
 		sha1 hash;
 		//logfile("\nSHA1(%p, %x, %p)\n", p_tmd, TMD_SIZE(p_tmd), hash);
 		SHA1((u8 *)p_tik, sizeof(tik), hash);
@@ -791,93 +718,126 @@ void brute_tik(tik *p_tik)
 		}
 	}
 }
-    
-void forge_tmd(signed_blob *s_tmd)
+
+bool check_if_fakesigned(signed_blob *data)
 {
-	printf("Forging TMD signature... ");
-	logfile("Forging TMD signature... ");
-	zero_sig(s_tmd, false);
-	
-	brute_tmd(SIGNATURE_PAYLOAD(s_tmd));
+	u32 *sig = (u32 *)data;
+	if (sig[4] == 0) return true;
+	return false;
 }
 
-void forge_tik(signed_blob *s_tik)
+void forge(signed_blob *data, bool is_tmd)
 {
-	printf("Forging Ticket signature... ");
-	logfile("Forging Ticket signature... ");
-	zero_sig(s_tik, true);
-	
-	brute_tik(SIGNATURE_PAYLOAD(s_tik));
-}
-
-s32 GetTMD(FILE *f, u64 id, signed_blob **tmd, bool forgetmd)
-{
-	char path[ISFS_MAXPATH];
-	u8 *buffer;
-	u32 size;
-	
-	snprintf(path, MAX_CHARACTERS(path), "/title/%08x/%08x/content/title.tmd", TITLE_UPPER(id), TITLE_LOWER(id));
-	
-	logfile("TMD path is '%s'.\n", path);
-	s32 ret = read_isfs(path, &buffer, &size);
-	if (ret < 0)
+	if (!check_if_fakesigned(data))
 	{
-		printf("Error getting TMD!\n");
-		return -1;
+		zero_sig(data);
+		
+		if (is_tmd)
+		{
+			brute_tmd(SIGNATURE_PAYLOAD(data));
+		} else {
+			brute_tik(SIGNATURE_PAYLOAD(data));
+		}
+		
+		printf("Forged %s signature. ", (is_tmd ? "TMD" : "Ticket"));
+		logfile("Forged %s signature. ", (is_tmd ? "TMD" : "Ticket"));
+	} else {
+		printf("%s already fakesigned. ", (is_tmd ? "TMD" : "Ticket"));
+		logfile("%s already fakesigned. ", (is_tmd ? "TMD" : "Ticket"));
 	}
 	
-	header->tmd_len = size;
-	
-	if ((size % 64) != 0)
+	u8 *ptr = (u8*)data;
+	if (is_tmd && change_region)
 	{
-		size = pad_data(buffer, size, false);
-		logfile("Padded TMD size = %u.\n", size);
+		/* Change WAD region */
+		ptr[0x19D] = region;
+		printf("Region changed to 0x%02x. ", region);
+		logfile("Region changed to 0x%02x. ", region);
+	} else
+	if (!is_tmd)
+	{
+		/* Wipe Console ID and ECDH data to avoid installation errors on other Wiis */
+		memset(ptr + 0x180, 0, 0x3C);
+		memset(ptr + 0x1D8, 0, 4);
+	}
+}
+
+s32 GetTMD(FILE *f, u64 id, signed_blob **tmd)
+{
+	s32 ret;
+	u32 tmd_size;
+	
+	ret = ES_GetStoredTMDSize(id, &tmd_size);
+	if (ret < 0)
+	{
+		//printf("ES_GetStoredTMDSize for '%08x-%08x' failed (%d).\n", TITLE_UPPER(id), TITLE_LOWER(id), ret);
+		logfile("ES_GetStoredTMDSize for '%08x-%08x' failed (%d).\n", TITLE_UPPER(id), TITLE_LOWER(id), ret);
+		Unmount_Devices();
+		Reboot();
+	}
+	
+	logfile("TMD size = %u.\n", tmd_size);
+	header->tmd_len = tmd_size;
+	*tmd = memalign(32, tmd_size);
+	
+	ret = ES_GetStoredTMD(id, *tmd, tmd_size);
+	if (ret < 0)
+	{
+		//printf("ES_GetStoredTMD for '%08x-%08x' failed (%d).\n", TITLE_UPPER(id), TITLE_LOWER(id), ret);
+		logfile("ES_GetStoredTMD for '%08x-%08x' failed (%d).\n", TITLE_UPPER(id), TITLE_LOWER(id), ret);
+		free(*tmd);
+		Unmount_Devices();
+		Reboot();
+	}
+	
+	if ((tmd_size % 64) != 0)
+	{
+		tmd_size = pad_data(*tmd, tmd_size, false);
+		logfile("Padded TMD size = %u.\n", tmd_size);
 	}
 	
 	/* Fakesign TMD if the user chose to */
-	if (forgetmd) forge_tmd((signed_blob *)buffer);
+	if (ftmd) forge(*tmd, true);
 	
 	/* Write to output WAD */
-	fwrite(buffer, 1, size, f);
-	
-	*tmd = (signed_blob *)buffer;
+	fwrite(*tmd, tmd_size, 1, f);
 	
 	return 0;
 }	
 
-s32 GetTicket(FILE *f, u64 id, signed_blob **tik, bool forgetik)
+s32 GetTicket(FILE *f, u64 id, signed_blob **tik)
 {
-	char path[ISFS_MAXPATH];
+	u32 tik_size;
 	u8 *buffer;
-	u32 size;
+	char path[ISFS_MAXPATH];
 	
 	snprintf(path, MAX_CHARACTERS(path), "/ticket/%08x/%08x.tik", TITLE_UPPER(id), TITLE_LOWER(id));
 	
 	logfile("Ticket path is '%s'.\n", path);
-	s32 ret = read_isfs(path, &buffer, &size);
+	s32 ret = read_isfs(path, &buffer, &tik_size);
 	if (ret < 0)
 	{
 		printf("Error getting Ticket!\n");
 		return -1;
 	}
 	
-	header->tik_len = size;
+	header->tik_len = tik_size;
 	
-	if ((size % 64) != 0)
+	if ((tik_size % 64) != 0)
 	{
-		size = pad_data(buffer, size, false);
-		logfile("Padded Ticket size = %u.\n", size);
+		tik_size = pad_data(buffer, tik_size, false);
+		logfile("Padded Ticket size = %u.\n", tik_size);
 	}
 	
 	/* Fakesign ticket if the user chose to */
-	if (forgetik) forge_tik((signed_blob *)buffer);
+	if (ftik) forge((signed_blob *)buffer, false);
 	
 	/* Change the common key index to '00' */
 	/* Useful to avoid installation errors with WADs dumped from vWii or a Korean Wii */
 	if ((buffer[0x1F1] == 0x01) || (buffer[0x1F1] == 0x02)) buffer[0x1F1] = 0x00;
 	
 	/* Write to output WAD */
-	fwrite(buffer, 1, size, f);
+	fwrite(buffer, tik_size, 1, f);
 	
 	*tik = (signed_blob *)buffer;
 	
@@ -985,23 +945,21 @@ void *GetContentMap(size_t *cm_size)
 {
 	s32 fd, ret;
 	void *buf = NULL;
-	fstats *status = allocate_memory(sizeof(fstats));
+	static fstats status ATTRIBUTE_ALIGN(32);
 	logfile("Reading '/shared1/content.map'... ");
 	
 	fd = ISFS_Open("/shared1/content.map", ISFS_OPEN_READ);
-	ret = ISFS_GetFileStats(fd, status);
+	ret = ISFS_GetFileStats(fd, &status);
 	
-	if (status == NULL || fd < 0 || ret < 0)
+	if (fd < 0 || ret < 0)
 	{
 		printf("\nError opening '/shared1/content.map' for reading.");
 		logfile("\nError opening '/shared1/content.map' for reading.");
-		free(status);
 		Unmount_Devices();
 		Reboot();
 	}
 	
-	*cm_size = status->file_length;
-	free(status);
+	*cm_size = status.file_length;
 	
 	logfile("content.map size = %u bytes.\nWriting '/shared1/content.map' to memory buffer... ", *cm_size);
 	buf = allocate_memory(*cm_size);
@@ -1215,10 +1173,9 @@ s32 getdir_device(char *path, dirent_t **ent, u32 *cnt)
     }
 	
     while ((dit = readdir(dip)) != NULL) i++;
-	
 	rewinddir(dip);
-	
 	*ent = allocate_memory(sizeof(dirent_t) * i);
+	
 	i = 0;
 	
 	logfile("DEVICE DIR list of '%s':\n\n", path);
@@ -1244,30 +1201,27 @@ s32 getdir_device(char *path, dirent_t **ent, u32 *cnt)
 
 s32 dumpfile(char *source, char *destination)
 {
-	u8 *buffer;
-	fstats *status;
-
-	FILE *file;
-	int fd;
 	s32 ret;
-	u32 size;
+	static fstats status ATTRIBUTE_ALIGN(32);
 	
-	fd = ISFS_Open(source, ISFS_OPEN_READ);
+	u8 *buffer = (u8 *)memalign(32, BLOCKSIZE);
+	if (buffer == NULL)
+	{
+		//printf("Error allocating memory for buffer.\n");
+		logfile("Error allocating memory for buffer.\n");
+		Unmount_Devices();
+		Reboot();
+	}
+	
+	int fd = ISFS_Open(source, ISFS_OPEN_READ);
 	if (fd < 0) 
 	{
 		//printf("\nError: ISFS_OpenFile for '%s' returned %d.\n", source, fd);
 		logfile("\nError: ISFS_OpenFile for '%s' returned %d.\n", source, fd);
 		return fd;
 	}
-	
-	if (!create_folders(destination))
-	{
-		//printf("Error creating folder(s) for '%s'.\n", destination);
-		logfile("Error creating folder(s) for '%s'.\n", destination);
-		return -1;
-	}
 
-	file = fopen(destination, "wb");
+	FILE *file = fopen(destination, "wb");
 	if (!file)
 	{
 		//printf("\nError: fopen for '%s' returned 0 .\n", destination);
@@ -1276,31 +1230,28 @@ s32 dumpfile(char *source, char *destination)
 		return -1;
 	}
 	
-	status = memalign(32, sizeof(fstats) );
-	ret = ISFS_GetFileStats(fd, status);
+	ret = ISFS_GetFileStats(fd, &status);
 	if (ret < 0)
 	{
 		//printf("\nISFS_GetFileStats(fd) returned %d.\n", ret);
 		logfile("\nISFS_GetFileStats(fd) returned %d.\n", ret);
 		ISFS_Close(fd);
 		fclose(file);
-		free(status);
+		remove(destination);
 		return ret;
 	}
 	
 	Con_ClearLine();
-	printf("Dumping file '%s', size = %uKB.", source, (status->file_length / 1024)+1);
-	logfile("Dumping file '%s', size = %uKB.", source, (status->file_length / 1024)+1);
-	buffer = (u8 *)memalign(32, BLOCKSIZE);
-	u32 restsize = status->file_length;
+	printf("Dumping '%s' / Size = %uKB", source, (status.file_length / 1024)+1);
+	logfile("Dumping '%s' / Size = %uKB", source, (status.file_length / 1024)+1);
 	
+	u32 size, restsize = status.file_length;
 	while (restsize > 0)
 	{
 		if (restsize >= BLOCKSIZE)
 		{
 			size = BLOCKSIZE;
-		} else
-		{
+		} else {
 			size = restsize;
 		}
 		
@@ -1311,20 +1262,20 @@ s32 dumpfile(char *source, char *destination)
 			logfile("\nISFS_Read(%d, %p, %d) returned %d.\n", fd, buffer, size, ret);
 			ISFS_Close(fd);
 			fclose(file);
-			free(status);
 			free(buffer);
+			remove(destination);
 			return ret;
 		}
 		
 		ret = fwrite(buffer, 1, size, file);
-		if(ret < 0) 
+		if (ret < 0) 
 		{
 			//printf("\nfwrite error: %d.\n", ret);
 			logfile("\nfwrite error: %d.\n", ret);
 			ISFS_Close(fd);
 			fclose(file);
-			free(status);
 			free(buffer);
+			remove(destination);
 			return ret;
 		}
 		
@@ -1333,68 +1284,55 @@ s32 dumpfile(char *source, char *destination)
 	
 	ISFS_Close(fd);
 	fclose(file);
-	free(status);
 	free(buffer);
 	return 0;
 }
 
 s32 flash(char* source, char* destination)
 {
-	u8 *buffer3 = (u8 *)memalign(32, BLOCKSIZE);
-	if (buffer3 == NULL)
+	s32 ret, nandfile;
+	//static fstats stats ATTRIBUTE_ALIGN(32);
+	
+	u8 *buffer = (u8 *)memalign(32, BLOCKSIZE);
+	if (buffer == NULL)
 	{
-		printf("Out of memory\n");
-		return -1;
+		//printf("Error allocating memory for buffer.\n");
+		logfile("Error allocating memory for buffer.\n");
+		Unmount_Devices();
+		Reboot();
 	}
-
-	s32 ret;
-	fstats *stats = memalign(32, sizeof(fstats));
-	if (stats == NULL)
+	
+	FILE *file = fopen(source, "rb");
+	if (!file) 
 	{
-		printf("Out of memory\n");
-		free(buffer3);
-		return -1;
-	}
-
-	s32 nandfile;
-	FILE *file;
-	file = fopen(source, "rb");
-	if(!file) 
-	{
-		printf("fopen error\n");
-		logfile("fopen error %s\n", source);
-		
-		free(stats);
-		free(buffer3);
+		printf("Error opening '%s' for reading.\n", source);
+		logfile("Error opening '%s' for reading.\n", source);
+		free(buffer);
 		return -1;
 	}
 	
 	fseek(file, 0, SEEK_END);
 	u32 filesize = ftell(file);
 	rewind(file);
-	printf("Flashing to '%s'.\n", destination);
-	logfile("Flashing to '%s'.\n", destination);
-	
-	printf("%s file size = %u bytes.\n", DEVICE(1), filesize);
-	logfile("%s file size = %u bytes.\n", DEVICE(1), filesize);
 
 	ISFS_Delete(destination);
 	ISFS_CreateFile(destination, 0, 3, 3, 3);
+	
 	nandfile = ISFS_Open(destination, ISFS_OPEN_RW);
-	if(nandfile < 0)
+	if (nandfile < 0)
 	{
-		//printf("ISFS_Open (write) error: %d.\n", nandfile);
-		logfile("ISFS_Open (write) error: %d.\n", nandfile);
+		//printf("ISFS_Open('%s', WRITE) error: %d.\n", destination, nandfile);
+		logfile("ISFS_Open('%s', WRITE) error: %d.\n", destination, nandfile);
 		fclose(file);
-		free(stats);
-		free(buffer3);
+		free(buffer);
 		return -1;
 	}
 	
-	printf("Writing file to NAND...\n");
+	Con_ClearLine();
+	printf("Flashing '%s' / Size = %uKB", destination, (filesize / 1024)+1);
+	logfile("Flashing '%s' / Size = %uKB", destination, (filesize / 1024)+1);
 	
-	u32 size;
-	u32 restsize = filesize;
+	u32 size, restsize = filesize;
 	while (restsize > 0)
 	{
 		if (restsize >= BLOCKSIZE)
@@ -1404,43 +1342,61 @@ s32 flash(char* source, char* destination)
 			size = restsize;
 		}
 		
-		ret = fread(buffer3, 1, size, file);
-		if(!ret) 
+		ret = fread(buffer, size, 1, file);
+		if (!ret) 
 		{
-			//printf("fread error: %d.\n", ret);
-			logfile("fread error: %d.\n", ret);
+			//printf("Error reading data from '%s' (ret = %d).\n", source, ret);
+			logfile("Error reading data from '%s' (ret = %d).\n", source, ret);
+			ISFS_Close(nandfile);
+			ISFS_Delete(destination);
+			fclose(file);
+			free(buffer);
+			return -1;
 		}
 		
-		ret = ISFS_Write(nandfile, buffer3, size);
-		if(!ret) 
+		ret = ISFS_Write(nandfile, buffer, size);
+		if (!ret) 
 		{
-			//printf("ISFS_Write error: %d.\n", ret);
-			logfile("ISFS_Write error: %d.\n", ret);
+			//printf("ISFS_Write('%s') error: %d.\n", destination, ret);
+			logfile("ISFS_Write('%s') error: %d.\n", destination, ret);
+			ISFS_Close(nandfile);
+			ISFS_Delete(destination);
+			fclose(file);
+			free(buffer);
+			return -1;
 		}
 		
 		restsize -= size;
 	}
 	
 	ISFS_Close(nandfile);
-	nandfile = ISFS_Open(destination, ISFS_OPEN_RW);
-	if(nandfile < 0)
+	fclose(file);
+	free(buffer);
+	
+	/*nandfile = ISFS_Open(destination, ISFS_OPEN_READ);
+	if (nandfile < 0)
 	{
-		//printf("ISFS_Open (write) error: %d.\n", nandfile);
-		logfile("ISFS_Open (write) error: %d.\n", nandfile);
-		fclose(file);
-		free(stats);
-		free(buffer3);
+		//printf("ISFS_Open('%s', READ) error: %d.\n", destination, nandfile);
+		logfile("ISFS_Open('%s', READ) error: %d.\n", destination, nandfile);
+		ISFS_Delete(destination);
 		return -1;
 	}	
 	
-	ret = ISFS_GetFileStats(nandfile, stats);
-	printf("Flashing file to NAND successful!\n");
-	logfile("Flashing file to nand successful!\n");
-	printf("New file is %u bytes.\n", stats->file_length);
-	ISFS_Close(nandfile);
-	fclose(file);
-	free(stats);
-	free(buffer3);
+	ret = ISFS_GetFileStats(nandfile, &stats);
+	if (ret < 0)
+	{
+		//printf("\nISFS_GetFileStats(fd) returned %d.\n", ret);
+		logfile("ISFS_GetFileStats(fd) returned %d.\n", ret);
+		ISFS_Close(nandfile);
+		ISFS_Delete(destination);
+		return -1;
+	}
+	
+	printf("Flashing file to NAND successful! New file is %u bytes.\n", stats.file_length);
+	logfile("Flashing file to NAND successful! New file is %u bytes.\n", stats.file_length);
+	
+	ISFS_Close(nandfile);*/
+	
 	return 0;
 }
 
@@ -1448,189 +1404,142 @@ bool dumpfolder(char source[1024], char destination[1024])
 {
 	logfile("DUMPFOLDER: source(%s), destination(%s).\n", source, destination);
 	
+	int i;
 	u32 tcnt;
 	s32 ret;
-	int i;
-	char path[1024];
-	char path2[1024];
-	char dirpath[1024];
-	char fs_dirpath[1024];
+	char path[1024], path2[1024];
 	dirent_t *dir = NULL;
-
-	strcpy(dirpath, destination);
-	strcpy(fs_dirpath, source);
-	ret = getdir_info(fs_dirpath, &dir, &tcnt);
-	if(ret == -1)
+	
+	ret = getdir_info(source, &dir, &tcnt);
+	if (ret < 0)
 	{
-		//printf("ERROR on getdir!\n");
-		logfile("ERROR on getdir!\n");
+		//printf("Error reading source directory: '%s'.\n", source);
+		logfile("Error reading source directory: '%s'.\n", source);
+		if (dir) free(dir);
 	}
 	
-	remove(dirpath);
+	remove(destination);
 	
-	for(i = 0; i < tcnt; i++) 
-	{					
-		sprintf(path, "%s/%s", fs_dirpath, dir[i].name);
-		logfile("Source file is '%s'.\n", path);
+	for (i = 0; i < tcnt; i++) 
+	{
+		snprintf(path, MAX_CHARACTERS(path), "%s/%s", source, dir[i].name);
 		
-		if(dir[i].type == DIRENT_T_FILE) 
+		if (strncmp(dir[i].name, "title.tmd", 9) != 0)
 		{
-			sprintf(path2, "%s/%s", dirpath, dir[i].name);
-			logfile("Destination file is '%s'.\n", path2);
-			ret = dumpfile(path, path2);
-		} else {
-			if(dir[i].type == DIRENT_T_DIR) 
+			logfile("Source file is '%s'.\n", path);
+			
+			snprintf(path2, MAX_CHARACTERS(path2), "%s/%s", destination, dir[i].name);
+			
+			if (!create_folders(path2))
 			{
-				strncat(dirpath, "/", 1);
-				strncat(dirpath, dir[i].name, strlen(dir[i].name));
-				strncat(fs_dirpath, "/", 1);
-				strncat(fs_dirpath, dir[i].name, strlen(dir[i].name));
-				remove(dirpath);
-				
-				if (!dumpfolder(fs_dirpath, dirpath))
+				//printf("Error creating folder(s) for '%s'.\n", path2);
+				logfile("Error creating folder(s) for '%s'.\n", path2);
+				return -1;
+			}
+			
+			if (dir[i].type == DIRENT_T_FILE) 
+			{
+				logfile("Destination file is '%s'.\n", path2);
+				ret = dumpfile(path, path2);
+				if (ret < 0)
 				{
+					printf("Error dumping file from NAND.\n");
+					logfile("Error dumping file from NAND.\n");
 					free(dir);
 					return false;
 				}
-			}	
+			} else {
+				logfile("Destination dir is '%s'.\n", path2);
+				remove(path2);
+				
+				if (!dumpfolder(path, path2))
+				{
+					remove(path2);
+					free(dir);
+					return false;
+				}
+			}
+		} else {
+			/* Probably a leftover from a previous version of BlueDump, so let's delete it silently... */
+			ISFS_Delete(path);
+			logfile("title.tmd detected in '%s' automatically deleted.\n", source);
 		}
 	}
 	
 	free(dir);
-	logfile("Dumping folder '%s' complete.\n", source);
 	return true;
 }
 
-bool writefolder(char *source, char *temp, char *destination, char *path_out, bool savedata)
+bool writefolder(char *source, char *destination)
 {
 	logfile("WRITEFOLDER: source(%s), dest(%s).\n", source, destination);
 	
 	u32 tcnt;
 	s32 ret;
 	int i;
-	bool found = false;
 	char path[512];
 	char path2[512];
-	char dirpath[512];
-	char device_dirpath[512];
-	char stuff[512];
-
-	dirent_t *dir = NULL;
-
-	strcpy(dirpath, destination);
-	strcpy(device_dirpath, source);
-	if(savedata != true)
-	{
-		dirent_t *temp_dir = NULL;
-		ret = getdir_device(device_dirpath, &temp_dir, &tcnt);
-		if(ret < 0)
-		{
-			//printf("ERROR on getdir_device!\n");
-			logfile("ERROR on getdir_device!\n");
-		}	
-		
-		for(i = 0; i < tcnt; i++) 
-		{	
-			if(strncmp(temp_dir[i].name + 5, temp, 4) == 0)
-			{
-				logfile("Savedata found: '%s'.\n", temp_dir[i].name);
-				sprintf(device_dirpath, "%s/%s", source, temp_dir[i].name);
-				free(temp_dir);
-				tcnt = 0;
-				ret = getdir_device(device_dirpath, &dir, &tcnt);
-				if(ret < 0)
-				{
-					//printf("ERROR on getdir_device!\n");
-					logfile("ERROR on getdir_device!\n");
-				}	
-				
-				found = true;
-				strcpy(stuff, device_dirpath);
-				//path_out = allocate_memory(strlen(stuff) + 10);
-				//memset(path_out, 0, strlen(stuff) + 10);
-				sprintf(path_out, "%s", stuff);
-				break;
-			}	
-		}
-	} else {
-		found = true;
-		strcpy(stuff, device_dirpath);
-		ret = getdir_device(device_dirpath, &dir, &tcnt);
-		if(ret < 0)
-		{
-			//printf("ERROR on getdir_device!\n");
-			logfile("ERROR on getdir_device!\n");
-		}	
-	}
 	
-	if(found != true)
+	dirent_t *dir = NULL;
+	ret = getdir_device(source, &dir, &tcnt);
+	if (ret < 0)
 	{
-		printf("Couldn't find the savedata on the %s! Please extract the savedata first.\n", (isSD ? "SD card" : "USB storage"));
-		logfile("Couldn't find the savedata on the %s!\n", (isSD ? "SD card" : "USB storage"));
-		sleep(3);
-		free(dir);
+		//printf("Error reading source directory: '%s'.\n", source);
+		logfile("Error reading source directory: '%s'.\n", source);
+		if (dir) free(dir);
 		return false;
 	}
 	
-	if(isdir(dirpath) == 0)
-	{
-		//Need to fix recursive stuff i think ...
-		ret = ISFS_CreateDir(dirpath, 0, 3, 3, 3);
-		logfile("ISFS_CreateDir(%s, 0, 3, 3, 3); %d\n", dirpath, ret);
-	} else {
-		ret = ISFS_Delete(dirpath);
-		logfile("ISFS_Delete(%s); %d\n", dirpath, ret);
-		ret = ISFS_CreateDir(dirpath, 0, 3, 3, 3);
-		logfile("ISFS_CreateDir(%s, 0, 3, 3, 3); %d\n", dirpath, ret);
-	}
+	ret = ISFS_Delete(destination);
+	logfile("ISFS_Delete('%s') returned %d.\n", destination, ret);
+	ret = ISFS_CreateDir(destination, 0, 3, 3, 3);
+	logfile("ISFS_CreateDir('%s', 0, 3, 3, 3) returned %d.\n", destination, ret);
 	
-	for(i = 0; i < tcnt; i++) 
-	{				
-		sprintf(path, "%s/%s", stuff, dir[i].name);
-		logfile("Source file is '%s'.\n", path);
-		
-		if(dir[i].type == DIRENT_T_FILE) 
+	for (i = 0; i < tcnt; i++) 
+	{
+		/* We'll flash the title.tmd file separately in install_savedata() */
+		if (strncmp(dir[i].name, "title.tmd", 9) != 0)
 		{
-			sprintf(path2, "%s/%s", destination, dir[i].name);
-			logfile("Destination file is '%s'.\n", path2);
-			ret = flash(path, path2);
-		} else {
-			if(dir[i].type == DIRENT_T_DIR) 
+			snprintf(path, MAX_CHARACTERS(path), "%s/%s", source, dir[i].name);
+			logfile("Source file is '%s'.\n", path);
+			
+			snprintf(path2, MAX_CHARACTERS(path2), "%s/%s", destination, dir[i].name);
+			
+			if (dir[i].type == DIRENT_T_FILE)
 			{
-				strncat(dirpath, "/", 1);
-				strncat(dirpath, dir[i].name, strlen(dir[i].name));
-				strncat(device_dirpath, "/", 1);
-				strncat(device_dirpath, dir[i].name, strlen(dir[i].name));
-				//ISFS_Delete(dirpath);
-				//ISFS_CreateDir(dirpath, 0, 3, 3, 3);
-				if(isdir(dirpath) == 0)
+				logfile("Destination file is '%s'.\n", path2);
+				ret = flash(path, path2);
+				if (ret < 0)
 				{
-					//Need to fix recursive stuff i think ...
-					ret = ISFS_CreateDir(dirpath, 0, 3, 3, 3);
-					logfile("ISFS_CreateDir(%s, 0, 3, 3, 3); %d\n", dirpath, ret);
-				} else {
-					ret = ISFS_Delete(dirpath);
-					logfile("ISFS_Delete(%s); %d\n", dirpath, ret);
-					ret = ISFS_CreateDir(dirpath, 0, 3, 3, 3);
-					logfile("ISFS_CreateDir(%s, 0, 3, 3, 3); %d\n", dirpath, ret);
-				}
-				
-				char *random_buffer;
-				random_buffer = allocate_memory(256);
-				memset(random_buffer, 0, 256);
-				if (!writefolder(device_dirpath, temp, dirpath, random_buffer, true))
-				{
+					printf("Error flashing file to NAND.\n");
+					logfile("Error flashing file to NAND.\n");
 					free(dir);
 					return false;
 				}
-				free(random_buffer);
-			}	
+			} else {
+				logfile("Destination dir is '%s'.\n", path2);
+				
+				if (!writefolder(path, path2))
+				{
+					ISFS_Delete(path2);
+					free(dir);
+					return false;
+				}
+			}
 		}
 	}
 	
 	free(dir);
-	logfile("Writing folder '%s' complete.\n", source);
 	return true;
+}
+
+char ascii_id[5];
+bool ascii = false;
+
+char *GetASCII(u32 name)
+{
+	snprintf(ascii_id, MAX_CHARACTERS(ascii_id), "%s", (char *)(&name));
+	return ascii_id;
 }
 
 char *RemoveIllegalCharacters(char *name)
@@ -1645,84 +1554,139 @@ char *RemoveIllegalCharacters(char *name)
 
 bool extract_savedata(u64 titleID)
 {
-	char path[ISFS_MAXPATH];
-	char device_path[MAXPATHLEN];
-	char *temp;
-	u32 low = TITLE_LOWER(titleID);
+	s32 ret;
 	bool success = false;
-	logfile("Extracting title %08x-%08x...\n", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
-	temp = allocate_memory(6);
-	memset(temp, 0, 6);
-	memcpy(temp, (char *)(&low), 4);
-	logfile("ID = %s.\n", temp);
-	sprintf(path, "/title/%08x/%08x/data", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
-	logfile("ISFS path is '%s'.\n", path);
+	char *id = GetASCII(TITLE_LOWER(titleID));
+	char isfs_path[ISFS_MAXPATH], dev_path[MAXPATHLEN]; // source, destination
 	
-	if(TITLE_UPPER(titleID) == 0x00010000)
+	logfile("Extracting title %08x-%08x...\n", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
+	snprintf(isfs_path, MAX_CHARACTERS(isfs_path), "/title/%08x/%08x/data", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
+	logfile("ISFS path is '%s'.\n", isfs_path);
+	
+	if (TITLE_UPPER(titleID) == 0x00010000)
 	{
-		//sprintf(device_path, "%s:/YABDM/Savedata/DISC %s", DEVICE(0), temp);
-		sprintf(device_path, "%s:/YABDM/Savedata/DISC %s - %s", DEVICE(0), temp, RemoveIllegalCharacters(get_name(titleID, false)));
+		//snprintf(dev_path, MAX_CHARACTERS(dev_path), "%s:/YABDM/Savedata/DISC %s", DEVICE(0), id);
+		snprintf(dev_path, MAX_CHARACTERS(dev_path), "%s:/YABDM/Savedata/DISC %s - %s", DEVICE(0), id, RemoveIllegalCharacters(get_name(titleID, false)));
 		logfile("Savedata type: disc-based game.\n");
 	} else
-	if(TITLE_UPPER(titleID) == 0x00010001)
+	if (TITLE_UPPER(titleID) == 0x00010001)
 	{
-		//sprintf(device_path, "%s:/YABDM/Savedata/CHAN %s", DEVICE(0), temp);
-		sprintf(device_path, "%s:/YABDM/Savedata/CHAN %s - %s", DEVICE(0), temp, RemoveIllegalCharacters(get_name(titleID, false)));
-		logfile("Savedata type: downloaded channel title.\n");
+		/* Workaround for HBC 1.0.7 - 1.1.0*/
+		if (TITLE_LOWER(titleID) == 0xAF1BF516)
+		{
+			//snprintf(dev_path, MAX_CHARACTERS(dev_path), "%s:/YABDM/Savedata/CHAN AF1BF516", DEVICE(0));
+			snprintf(dev_path, MAX_CHARACTERS(dev_path), "%s:/YABDM/Savedata/CHAN AF1BF516 - Homebrew Channel", DEVICE(0));
+			logfile("Savedata type: The Homebrew Channel (1.0.7 - 1.1.0).\n");
+		} else {
+			//snprintf(dev_path, MAX_CHARACTERS(dev_path), "%s:/YABDM/Savedata/CHAN %s", DEVICE(0), id);
+			snprintf(dev_path, MAX_CHARACTERS(dev_path), "%s:/YABDM/Savedata/CHAN %s - %s", DEVICE(0), id, RemoveIllegalCharacters(get_name(titleID, false)));
+			logfile("Savedata type: downloaded channel title.\n");
+		}
 	} else
-	if(TITLE_UPPER(titleID) == 0x00010004)
+	if (TITLE_UPPER(titleID) == 0x00010004)
 	{
-		//sprintf(device_path, "%s:/YABDM/Savedata/CHSV %s", DEVICE(0), temp);
-		sprintf(device_path, "%s:/YABDM/Savedata/CHSV %s - %s", DEVICE(0), temp, RemoveIllegalCharacters(get_name(titleID, false)));
+		//snprintf(dev_path, MAX_CHARACTERS(dev_path), "%s:/YABDM/Savedata/CHSV %s", DEVICE(0), id);
+		snprintf(dev_path, MAX_CHARACTERS(dev_path), "%s:/YABDM/Savedata/CHSV %s - %s", DEVICE(0), id, RemoveIllegalCharacters(get_name(titleID, false)));
 		logfile("Savedata type: game that uses channel.\n");
 	}
 	
-	logfile("%s path is '%s'.\n", DEVICE(1), device_path);
-	success = dumpfolder(path, device_path);
+	logfile("%s path is '%s'.\n", DEVICE(1), dev_path);
 	
-	/* Dump the title.tmd file */
-	sprintf(path, "/title/%08x/%08x/content/title.tmd", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
-	strcat(device_path, "/title.tmd");
-	logfile("path = %s.\n", path);
-	logfile("device_path = %s.\n", device_path);
-	dumpfile(path, device_path);
+	success = dumpfolder(isfs_path, dev_path);
+	if (success)
+	{
+		/* Dump the title.tmd file */
+		snprintf(isfs_path, MAX_CHARACTERS(isfs_path), "/title/%08x/%08x/content/title.tmd", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
+		strncat(dev_path, "/title.tmd", 10);
+		
+		logfile("title.tmd path = %s.\n", isfs_path);
+		logfile("path_out = %s.\n", dev_path);
+		
+		ret = dumpfile(isfs_path, dev_path);
+		if (ret < 0)
+		{
+			printf("\n\nError dumping title.tmd to %s.\n", DEVICE(1));
+			logfile("Error dumping title.tmd to %s.\n", DEVICE(1));
+		} else {
+			printf("\n\nDumping folder complete.\n");
+			logfile("Dumping folder complete.\n");
+		}
+	}
+	
 	return success;
 }	
 
 bool install_savedata(u64 titleID)
 {
-	char path[ISFS_MAXPATH];
-	char device_path[MAXPATHLEN];
-	char path_out[1024];
-	char *temp;
 	s32 ret;
-	u32 low = TITLE_LOWER(titleID);
-	bool success = false;
-	logfile("Installing title %08x-%08x...\n", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
-	temp = allocate_memory(6);
-	memset(temp, 0, 6);
-	memcpy(temp, (char *)(&low), 4);
-	logfile("ID = %s.\n", temp);
-	sprintf(path, "/title/%08x/%08x", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
+	bool found = false, success = false;
+	char *id = GetASCII(TITLE_LOWER(titleID));
+	char dev_path[MAXPATHLEN], isfs_path[ISFS_MAXPATH]; // source, destination
 	
-	if(isdir(path) == 0)
+	logfile("Installing title %08x-%08x...\n", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
+	snprintf(isfs_path, MAX_CHARACTERS(isfs_path), "/title/%08x/%08x/data", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
+	logfile("ISFS path is '%s'.\n", isfs_path);
+	
+	sprintf(dev_path, "%s:/YABDM/Savedata", DEVICE(0));
+	
+	/* Search savedata directory on external storage */
+	u32 i, tcnt;
+	dirent_t *dir = NULL;
+	ret = getdir_device(dev_path, &dir, &tcnt);
+	if (ret < 0)
 	{
-		ret = ISFS_CreateDir(path, 0, 3, 3, 3);
-		logfile("ISFS_CreateDir(%s, 0, 3, 3, 3); %d\n", path, ret);
+		//printf("Error reading savedata directory: '%s'.\n", dev_path);
+		logfile("Error reading savedata directory: '%s'.\n", dev_path);
+		if (dir) free(dir);
+		return success;
 	}
 	
-	sprintf(path, "/title/%08x/%08x/data", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
-	logfile("ISFS path is '%s'.\n", path);
+	for (i = 0; i < tcnt; i++)
+	{
+		/* Workaround for HBC 1.0.7 - 1.1.0 */
+		if (((TITLE_LOWER(titleID) == 0xAF1BF516) && (strncmp(dir[i].name + 5, "AF1BF516", 8) == 0)) || \
+			(strncmp(dir[i].name + 5, id, 4) == 0))
+		{
+			found = true;
+			break;
+		}
+	}
 	
-	sprintf(device_path, "%s:/YABDM/Savedata", DEVICE(0));
-	logfile("%s path is '%s'.\n", DEVICE(1), device_path);
+	free(dir);
 	
-	success = writefolder(device_path, temp, path, path_out, false);
-	sprintf(path, "/title/%08x/%08x/content/title.tmd", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
-	strcat(path_out, "/title.tmd");
-	logfile("path_out = %s.\n", path_out);
-	logfile("path = %s.\n", path);
-	flash(path_out, path);
+	if (!found)
+	{
+		printf("Couldn't find the savedata on the %s! Please extract the savedata first.\n", (isSD ? "SD card" : "USB storage"));
+		logfile("Couldn't find the savedata on the %s!\n", (isSD ? "SD card" : "USB storage"));
+		sleep(3);
+		return success;
+	} else {
+		logfile("Savedata found: '%s'.\n", dir[i].name);
+		snprintf(dev_path, MAX_CHARACTERS(dev_path), "%s/%s", dev_path, dir[i].name);
+		logfile("%s path is '%s'.\n", DEVICE(1), dev_path);
+	}
+	
+	success = writefolder(dev_path, isfs_path);
+	if (success)
+	{
+		/* Flash the title.tmd file */
+		snprintf(isfs_path, MAX_CHARACTERS(isfs_path), "/title/%08x/%08x/content/title.tmd", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
+		strncat(dev_path, "/title.tmd", 10);
+		
+		logfile("title.tmd path = %s.\n", dev_path);
+		logfile("path_out = %s.\n", isfs_path);
+		
+		ret = flash(dev_path, isfs_path);
+		if (ret < 0)
+		{
+			printf("\n\nError flashing title.tmd to NAND.\n");
+			logfile("Error flashing title.tmd to NAND.\n");
+		} else {
+			printf("\n\nFlashing to NAND complete.\n");
+			logfile("Flashing to NAND complete.\n");
+		}
+	}
+	
 	return success;
 }	
 
@@ -1804,25 +1768,34 @@ char *GetSysMenuVersion(u16 version)
 		case 486:
 			return "v4.2K";
 		case 512:
-			return "v4.3J";
+		case 544:
+			if (vwii)
+			{
+				return "v4.3J (vWii)";
+			} else {
+				return "v4.3J";
+			}
 		case 513:
-			return "v4.3U";
+		case 545:
+			if (vwii)
+			{
+				return "v4.3U (vWii)";
+			} else {
+				return "v4.3U";
+			}
 		case 514:
-			return "v4.3E";
+		case 546:
+			if (vwii)
+			{
+				return "v4.3E (vWii)";
+			} else {
+				return "v4.3E";
+			}
 		case 518:
 			return "v4.3K";
 		default:
 			return "(Unknown Version)";
 	}
-}
-
-char ascii_id[5];
-bool ascii = false;
-
-char *GetASCII(u32 name)
-{
-	snprintf(ascii_id, MAX_CHARACTERS(ascii_id), "%s", (char *)(&name));
-	return ascii_id;
 }
 
 void browser(char cpath[ISFS_MAXPATH + 1], dirent_t* ent, int cline, int lcnt)
@@ -1921,7 +1894,7 @@ void get_title_key(signed_blob *s_tik, u8 *key)
 	logfile("\n");
 }
 
-s32 Wad_Dump(u64 id, char *path, bool ftik, bool ftmd)
+s32 Wad_Dump(u64 id, char *path)
 {
 	make_header();
 	
@@ -1979,7 +1952,7 @@ s32 Wad_Dump(u64 id, char *path, bool ftik, bool ftmd)
 	/* Get Ticket */
 	printf("Reading Ticket... ");
 	logfile("Reading Ticket... ");
-	ret = GetTicket(wadout, id, &p_tik, ftik);
+	ret = GetTicket(wadout, id, &p_tik);
 	if (ret < 0)
 	{
 		free(header);
@@ -1987,13 +1960,13 @@ s32 Wad_Dump(u64 id, char *path, bool ftik, bool ftmd)
 		remove(path);
 		return -1;
 	}
-	printf("done.\n");
-	logfile("done.\n");
+	printf("OK.\n");
+	logfile("OK.\n");
 	
 	/* Get TMD */
 	printf("Reading TMD... ");
 	logfile("Reading TMD... ");
-	ret = GetTMD(wadout, id, &p_tmd, ftmd);
+	ret = GetTMD(wadout, id, &p_tmd);
 	if (ret < 0)
 	{
 		free(header);
@@ -2002,8 +1975,8 @@ s32 Wad_Dump(u64 id, char *path, bool ftik, bool ftmd)
 		remove(path);
 		return -1;
 	}
-	printf("done.\n");
-	logfile("done.\n");
+	printf("OK.\n");
+	logfile("OK.\n");
 	
 	/* Get Title Key */
 	printf("Decrypting AES Title Key... ");
@@ -2027,13 +2000,11 @@ s32 Wad_Dump(u64 id, char *path, bool ftik, bool ftmd)
 		switch(content->type)
 		{
 			case 0x0001: // Normal
+			case 0x4001: // DLC
 				ret = GetContent(wadout, id, content->cid, (u8*)key, content->index, (u32)content->size);
 				break;
 			case 0x8001: // Shared
 				ret = GetSharedContent(wadout, (u8*)key, content->index, content->hash, cm, content_map_items);
-				break;
-			case 0x4001: // DLC
-				ret = GetContent(wadout, id, content->cid, (u8*)key, content->index, (u32)content->size);
 				break;
 			default:
 				printf("Unknown content type: 0x%04x. Aborting mission...\n", content->type);
@@ -2089,7 +2060,7 @@ s32 Wad_Dump(u64 id, char *path, bool ftik, bool ftmd)
 	return 0;
 }
 
-s32 Content_bin_Dump(FILE *cnt_bin, char* path, bool ftik, bool ftmd)
+s32 Content_bin_Dump(FILE *cnt_bin, char* path)
 {
 	make_header();
 	
@@ -2184,6 +2155,7 @@ s32 Content_bin_Dump(FILE *cnt_bin, char* path, bool ftik, bool ftmd)
 	
 	bool found = false;
 	u8 bk[4] = { 0x42, 0x6b, 0x00, 0x01 };
+	
 	for (i = 0; i < (cnt_size - 0x644); i += 0x20)
 	{
 		/* "Bk" header */
@@ -2217,6 +2189,7 @@ s32 Content_bin_Dump(FILE *cnt_bin, char* path, bool ftik, bool ftmd)
 			
 			break;
 		}
+		
 		fseek(cnt_bin, 0x0C, SEEK_CUR);
 	}
 	
@@ -2267,16 +2240,16 @@ s32 Content_bin_Dump(FILE *cnt_bin, char* path, bool ftik, bool ftmd)
 	
 	footer_offset = ftell(cnt_bin);
 	
-	if (ftmd) forge_tmd((signed_blob *)tmd_buf);
+	if (ftmd) forge((signed_blob *)tmd_buf, true);
 	p_tmd = (signed_blob *)tmd_buf;
 	
-	printf("done.\n");
-	logfile("done.\n");
+	printf("OK.\n");
+	logfile("OK.\n");
 	
 	/* Get Ticket */
 	printf("Reading Ticket... ");
 	logfile("Reading Ticket... ");
-	ret = GetTicket(wadout, titleID, &p_tik, ftik);
+	ret = GetTicket(wadout, titleID, &p_tik);
 	if (ret < 0)
 	{
 		free(header);
@@ -2284,8 +2257,8 @@ s32 Content_bin_Dump(FILE *cnt_bin, char* path, bool ftik, bool ftmd)
 		remove(path);
 		return -1;
 	}
-	printf("done.\n");
-	logfile("done.\n");
+	printf("OK.\n");
+	logfile("OK.\n");
 	
 	/* Get Title Key */
 	printf("Decrypting AES Title Key... ");
@@ -2320,15 +2293,12 @@ s32 Content_bin_Dump(FILE *cnt_bin, char* path, bool ftik, bool ftmd)
 		switch (content->type)
 		{
 			case 0x0001: // Normal
+			case 0x4001: // DLC, I'm not sure if this type of content gets included or not, but let's be on the safe side
 				printf("Adding regular content %08x... ", content->cid);
 				ret = GetContentFromCntBin(cnt_bin, wadout, content->index, (u32)content->size, (u8*)key);
 				break;
 			case 0x8001: // Shared, they don't get included in the content.bin file
 				ret = GetSharedContent(wadout, (u8*)key, content->index, content->hash, cm, content_map_items);
-				break;
-			case 0x4001: // DLC, I'm not sure if this type of content gets included or not, but let's be on the safe side
-				printf("Adding regular content %08x... ", content->cid);
-				ret = GetContentFromCntBin(cnt_bin, wadout, content->index, (u32)content->size, (u8*)key);
 				break;
 			default:
 				printf("Unknown content type: 0x%04x. Aborting mission...\n", content->type);
@@ -2392,10 +2362,7 @@ s32 Content_bin_Dump(FILE *cnt_bin, char* path, bool ftik, bool ftmd)
 		return -1;
 	}
 	
-	if ((header->footer_len % 64) != 0)
-	{
-		memset(&(footer_buf[header->footer_len]), 0x00, (footer_size - header->footer_len));
-	}
+	if ((header->footer_len % 64) != 0) memset(&(footer_buf[header->footer_len]), 0x00, (footer_size - header->footer_len));
 	
 	fwrite(footer_buf, footer_size, 1, wadout);
 	free(footer_buf);
@@ -2436,15 +2403,12 @@ u64 copy_id(char *path)
 	return titleID;
 }
 
-bool for_tik = false;
-bool for_tmd = false;
-
-void select_forge()
+void YesNoPrompt(char *prompt, char *name, bool *option)
 {
 	u32 pressed;
-
-	printf("\n\nDo you want to fakesign the ticket?");
-	printf("\n[A] Yes (recommended)   [B] No\n");
+	
+	printf("\n\n%s", prompt);
+	printf("\n[A] Yes    [B] No\n");
 	
 	while(true)
 	{
@@ -2452,38 +2416,63 @@ void select_forge()
 		
 		if (pressed & WPAD_BUTTON_A)
 		{
-			for_tik = true;
-			logfile("forge_tik set to true.\n");
+			*option = true;
+			logfile("%s set to true.\n", name);
 			break;
 		}
 		
 		if (pressed & WPAD_BUTTON_B)
 		{
-			for_tik = false;
-			logfile("forge_tik set to false.\n");
+			*option = false;
+			logfile("%s set to false.\n", name);
 			break;
 		}
 	}
+}
+
+void select_forge()
+{
+	YesNoPrompt("Do you want to fakesign the ticket?", "ftik", &ftik);
+	YesNoPrompt("Do you want to fakesign the TMD?", "ftmd", &ftmd);
 	
-	printf("\nDo you want to fakesign the TMD?");
-	printf("\n[A] Yes    [B] No (recommended)\n");
-	
-	while(true)
+	/* WAD region change prompt */
+	/* We cannot change the WAD region if the TMD isn't fakesigned */
+	if (ftmd)
 	{
-		pressed = DetectInput(DI_BUTTONS_DOWN);
-		
-		if (pressed & WPAD_BUTTON_A)
+		YesNoPrompt("Do you also want to change the WAD region?", "change_region", &change_region);
+		if (change_region)
 		{
-			for_tmd = true;
-			logfile("forge_tmd set to true.\n");
-			break;
-		}
-		
-		if (pressed & WPAD_BUTTON_B)
-		{
-			for_tmd = false;
-			logfile("forge_tmd set to false.\n");
-			break;
+			u32 pressed;
+			u8 selection = 0;
+			char *region_str[4] = { "Japanese >", "< American >" , "< European >", "< **FREE**" };
+			printf("\n");
+			
+			while(true)
+			{
+				Con_ClearLine();
+				
+				printf("Select the new region: ");
+				
+				set_highlight(true);
+				printf("%s", region_str[selection]);
+				set_highlight(false);
+				
+				pressed = DetectInput(DI_BUTTONS_DOWN);
+				
+				if (pressed & WPAD_BUTTON_LEFT)
+				{	
+					if (selection > 0) selection--;
+				}
+				
+				if (pressed & WPAD_BUTTON_RIGHT)
+				{	
+					if (selection < 3) selection++;
+				}
+				
+				if (pressed & WPAD_BUTTON_A) break;
+			}
+			
+			region = selection;
 		}
 	}
 }
@@ -2493,8 +2482,8 @@ void dump_menu(char *cpath, char *tmp, int cline, dirent_t *ent)
 	u32 pressed;
 	u64 titleID;
 	
-	char *options[3] = { "Backup Savedata >", "< Restore Savedata >" , "< Backup to WAD"};
 	int selection = 0;
+	char *options[3] = { "Backup Savedata >", "< Restore Savedata >" , "< Backup to WAD"};
 	
 	while(true)
 	{
@@ -2540,12 +2529,10 @@ void dump_menu(char *cpath, char *tmp, int cline, dirent_t *ent)
 		case 0: // Backup savedata
 			if ((ent[cline].function == TYPE_SAVEDATA && strncmp(ent[cline].name, "48415a41", 8) != 0) || ent[cline].function == TYPE_TITLE || ent[cline].function == TYPE_GAMECHAN)
 			{
-				printf("\n\nBacking up savedata... \n");
-				logfile("Backing up savedata... \n");
+				printf("\n\nBacking up savedata...\n\n");
+				logfile("Backing up savedata...\n");
 				titleID = copy_id(some);
 				extract_savedata(titleID);
-				printf("done .\n");
-				logfile("done.\n");
 			} else {
 				printf("\n\nThe title you chose has no savedata!\n");
 				printf("Use the WAD function for this.");
@@ -2554,12 +2541,10 @@ void dump_menu(char *cpath, char *tmp, int cline, dirent_t *ent)
 		case 1: // Restore savedata
 			if ((ent[cline].function == TYPE_SAVEDATA && strncmp(ent[cline].name, "48415a41", 8) != 0) || ent[cline].function == TYPE_TITLE || ent[cline].function == TYPE_GAMECHAN)
 			{
-				printf("\n\nRestoring savedata... \n");
-				logfile("Restoring savedata... \n");
+				printf("\n\nRestoring savedata...\n\n");
+				logfile("Restoring savedata...\n");
 				titleID = copy_id(some);
 				install_savedata(titleID);
-				printf("done.\n");
-				logfile("done.\n");
 			} else {
 				printf("\n\nThe title you chose has no savedata!\n");
 				printf("Use the WAD function for this.");
@@ -2567,7 +2552,7 @@ void dump_menu(char *cpath, char *tmp, int cline, dirent_t *ent)
 			break;	
 		case 2: // Backup to WAD
 			/* Workaround for HAZA (00010000-48415a41) */
-			/* This title is responsible for changing the Photo Channel v1.0 placeholder data in the System Menu to the v1.1 */
+			/* This title is responsible for changing the Photo Channel v1.0 placeholder in the System Menu to v1.1 */
 			if ((ent[cline].function == TYPE_SAVEDATA && strncmp(ent[cline].name, "48415a41", 8) != 0) || ent[cline].function == TYPE_OTHER)
 			{
 				printf("\n\nThis is not a title! Use the savedata functions for this.\n");
@@ -2619,30 +2604,30 @@ void dump_menu(char *cpath, char *tmp, int cline, dirent_t *ent)
 						snprintf(dump_path, MAX_CHARACTERS(dump_path), "%s:/YABDM/WAD/Homebrew Channel - AF1BF516", DEVICE(0));
 					}
 				} else {
-					if (strncmp(ent[cline].titlename, "Unknown Hidden Channel", 22) == 0)
+					if ((strncmp(ent[cline].titlename, "Unknown Hidden Channel", 22) == 0) || (strncmp(ent[cline].titlename, "Channel/Title deleted from Wii Menu? (couldn't get info)", 56) == 0))
 					{
-						snprintf(dump_path, MAX_CHARACTERS(dump_path), "%s:/YABDM/WAD/00010008-%s v%u", DEVICE(0), GetASCII(low), get_version(titleID));
+						snprintf(dump_path, MAX_CHARACTERS(dump_path), "%s:/YABDM/WAD/%08x-%s v%u", DEVICE(0), TITLE_UPPER(titleID), ent[cline].name, get_version(titleID));
 					} else {
 						snprintf(dump_path, MAX_CHARACTERS(dump_path), "%s:/YABDM/WAD/%s", DEVICE(0), ent[cline].titlename);
 					}
 				}
 				
-				if (for_tik && for_tmd)
+				if (ftik && ftmd)
 				{
 					strncat(dump_path, " (ftmd+ftik).wad", 16);
 				} else
-				if (!for_tik && for_tmd)
+				if (!ftik && ftmd)
 				{
 					strncat(dump_path, " (ftmd).wad", 11);
 				} else
-				if (for_tik && !for_tmd)
+				if (ftik && !ftmd)
 				{
 					strncat(dump_path, " (ftik).wad", 11);
 				} else {
 					strncat(dump_path, ".wad", 4);
 				}
 				
-				s32 ret = Wad_Dump(titleID, dump_path, for_tik, for_tmd);
+				s32 ret = Wad_Dump(titleID, dump_path);
 				if (ret < 0)
 				{
 					printf("\nError dumping title to WAD file!");
@@ -2700,25 +2685,25 @@ void dump_menu_sd(char *cnt_path)
 	}
 	
 	char dump_path[100];
-	snprintf(dump_path, MAX_CHARACTERS(dump_path), "%s:/YABDM/WAD/%s - %.4s (content.bin)", DEVICE(0), RemoveIllegalCharacters(read_content_bin_name(cnt_bin, false)), cnt_path+22);
+	snprintf(dump_path, MAX_CHARACTERS(dump_path), "%s:/YABDM/WAD/%s - %.4s (content.bin)", DEVICE(0), RemoveIllegalCharacters(read_cntbin_name(cnt_bin, false)), cnt_path+22);
 	rewind(cnt_bin);
 	
-	if (for_tik && for_tmd)
+	if (ftik && ftmd)
 	{
 		strncat(dump_path, " (ftmd+ftik).wad", 16);
 	} else
-	if (!for_tik && for_tmd)
+	if (!ftik && ftmd)
 	{
 		strncat(dump_path, " (ftmd).wad", 11);
 	} else
-	if (for_tik && !for_tmd)
+	if (ftik && !ftmd)
 	{
 		strncat(dump_path, " (ftik).wad", 11);
 	} else {
 		strncat(dump_path, ".wad", 4);
 	}
 	
-	s32 ret = Content_bin_Dump(cnt_bin, dump_path, for_tik, for_tmd);
+	s32 ret = Content_bin_Dump(cnt_bin, dump_path);
 	if (ret < 0)
 	{
 		printf("\nError dumping title to WAD file!");
@@ -2776,7 +2761,7 @@ void sd_browser()
 			f = fopen(tmp, "rb");
 			if (f)
 			{
-				snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), "%s", read_content_bin_name(f, true));
+				snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), "%s", read_cntbin_name(f, true));
 				fclose(f);
 			} else {
 				switch(ent[i].name[0])
@@ -3050,7 +3035,11 @@ void yabdm_loop(void)
 	reset_log();
 	logfile("Yet Another BlueDump MOD v%s - Logfile.\n", VERSION);
 	logfile("SDmnt(%d), USBmnt(%d), isSD(%d).\n", SDmnt, USBmnt, isSD);
-	logfile("Using IOS%u v%u.\n\n", IOS_GetVersion(), IOS_GetRevision());
+	logfile("Using IOS%u v%u.\n", IOS_GetVersion(), IOS_GetRevision());
+	
+	/* Get Console Language */
+	lang = CONF_GetLanguage();
+	logfile("Console language: %d.\n\n", lang);
 	
 	/* Read the content.map file here to avoid reading it at a later time */
 	cm = (map_entry_t*)GetContentMap(&content_map_size);
