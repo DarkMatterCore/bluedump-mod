@@ -26,7 +26,7 @@ The same things applies if you want to backup savedata for a VC title: just go t
 
 === Changelog ===
 
-YABDM v0.91 (Feabruary 26th, 2014 - DarkMatterCore):
+YABDM v0.91 (February 26th, 2014 - DarkMatterCore):
 
 * Fixed a very silly regression bug in the name reading code.
 * Fixed GCN Controller compatibility. For some odd reason, the controller input acts erratically using the DetectInput() function, so for now I'm just reverting back to the old waitforbuttonpress(). I swear I received my controller just a moment ago; otherwise, I wouldn't have noticed that.
@@ -138,6 +138,6 @@ Alpha 1:
 * Never released.</long_description>
 <ahb_access/>
 <arguments>
-	<arg>debug=1</arg>
+	<arg>debug=0</arg>
 </arguments>
 	</app> 
