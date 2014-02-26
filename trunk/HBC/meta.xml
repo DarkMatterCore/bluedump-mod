@@ -2,8 +2,8 @@
 	<app version="1">
 		<name>Yet Another BlueDump MOD (YABDM)</name>
 		<coder>nicksasa, DarkMatterCore</coder>
-		<version>v0.9</version>
-		<release_date>20140226120000</release_date>
+		<version>v0.91</version>
+		<release_date>20140226161500</release_date>
 		<short_description>Title and save manager</short_description>
 		<long_description>YABDM is a modification of BlueDump capable of dumping any type of title installed in your Wii console to a WAD file in a SD Card or an USB storage device. It can also backup and restore savegames in their unencrypted form. 
 
@@ -25,6 +25,11 @@ The same things applies if you want to backup savedata for a VC title: just go t
 * The folks at HacksDen.com, for testing every new release. Special mention to stomp_442.
 
 === Changelog ===
+
+YABDM v0.91 (Feabruary 26th, 2014 - DarkMatterCore):
+
+* Fixed a very silly regression bug in the name reading code.
+* Fixed GCN Controller compatibility. For some odd reason, the controller input acts erratically using the DetectInput() function, so for now I'm just reverting back to the old waitforbuttonpress(). I swear I received my controller just a moment ago; otherwise, I wouldn't have noticed that.
 
 YABDM v0.9 (February 26th, 2014 - DarkMatterCore):
 
@@ -133,6 +138,6 @@ Alpha 1:
 * Never released.</long_description>
 <ahb_access/>
 <arguments>
-	<arg>debug=0</arg>
+	<arg>debug=1</arg>
 </arguments>
 	</app> 

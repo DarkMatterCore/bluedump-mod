@@ -8,17 +8,13 @@
 
 #define VERSION "0.9"
 
-// Values for DetectInput
-#define DI_BUTTONS_DOWN		0
-#define DI_BUTTONS_HELD		1
-
 #define resetscreen() printf("\x1b[2J")
 
 bool SDmnt, USBmnt, isSD, __debug, vwii;
 
 void Reboot();
 inline bool IsWiiU();
-u32 DetectInput(u8 DownOrHeld);
+void waitforbuttonpress(u32 *out, u32 *outGC);
 void Init_Console();
 void printheadline();
 void set_highlight(bool highlight);

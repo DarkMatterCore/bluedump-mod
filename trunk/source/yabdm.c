@@ -283,6 +283,7 @@ char *read_title_name(u64 titleid, bool get_description)
 	u32 num, cnt;
 	dirent_t *list = NULL;
 	char path[ISFS_MAXPATH] ATTRIBUTE_ALIGN(32);
+	static fstats status ATTRIBUTE_ALIGN(32);
 	
 	u8 *buffer = allocate_memory(sizeof(IMET));
 	if (!buffer)
@@ -323,131 +324,145 @@ char *read_title_name(u64 titleid, bool get_description)
 				continue;
 			}
 			
-			ISFS_Seek(cfd, 0x40, 0);
-			
-			ret = ISFS_Read(cfd, buffer, 4);
+			ret = ISFS_GetFileStats(cfd, &status);
 			if (ret < 0)
 			{
-				//printf("ISFS_Read(wibn_magic) returned %d.\n", ret);
-				logfile("ISFS_Read(wibn_magic) returned %d.\n", ret);
+				//printf("ISFS_GetFileStats(fd) returned %d.\n", ret);
+				logfile("ISFS_GetFileStats(fd) returned %d.\n", ret);
 				ISFS_Close(cfd);
 				continue;
 			}
 			
-			if (memcmp(buffer, wibn_magic, 4) == 0)
+			if (status.file_length > 0x80)
 			{
-				is_dlc = true;
 				ISFS_Seek(cfd, 0x40, 0);
-			} else {
-				ISFS_Seek(cfd, 0x80, 0);
 				
 				ret = ISFS_Read(cfd, buffer, 4);
 				if (ret < 0)
 				{
-					//printf("ISFS_Read(imet_magic) returned %d.\n", ret);
-					logfile("ISFS_Read(imet_magic) returned %d.\n", ret);
+					//printf("ISFS_Read(wibn_magic) returned %d.\n", ret);
+					logfile("ISFS_Read(wibn_magic) returned %d.\n", ret);
 					ISFS_Close(cfd);
 					continue;
 				}
 				
-				if (memcmp(buffer, imet_magic, 4) == 0)
+				if (memcmp(buffer, wibn_magic, 4) == 0)
 				{
-					is_dlc = false;
-					ISFS_Seek(cfd, 0, 0);
+					is_dlc = true;
+					ISFS_Seek(cfd, 0x40, 0);
 				} else {
-					/* No dice, check the next file */
-					ISFS_Close(cfd);
-					continue;
+					ISFS_Seek(cfd, 0x80, 0);
+					
+					ret = ISFS_Read(cfd, buffer, 4);
+					if (ret < 0)
+					{
+						//printf("ISFS_Read(imet_magic) returned %d.\n", ret);
+						logfile("ISFS_Read(imet_magic) returned %d.\n", ret);
+						ISFS_Close(cfd);
+						continue;
+					}
+					
+					if (memcmp(buffer, imet_magic, 4) == 0)
+					{
+						is_dlc = false;
+						ISFS_Seek(cfd, 0, 0);
+					} else {
+						/* No dice, check the next file */
+						ISFS_Close(cfd);
+						continue;
+					}
 				}
-			}
-			
-			ret = ISFS_Read(cfd, buffer, (is_dlc ? sizeof(WIBN) : sizeof(IMET)));
-			if (ret < 0)
-			{
-				//printf("ISFS_Read(buffer) returned %d.\n", ret);
-				logfile("ISFS_Read(buffer) returned %d.\n", ret);
+				
+				ret = ISFS_Read(cfd, buffer, (is_dlc ? sizeof(WIBN) : sizeof(IMET)));
+				if (ret < 0)
+				{
+					//printf("ISFS_Read(buffer) returned %d.\n", ret);
+					logfile("ISFS_Read(buffer) returned %d.\n", ret);
+					ISFS_Close(cfd);
+					free(list);
+					free(buffer);
+					return titlename;
+				}
+				
 				ISFS_Close(cfd);
+				
+				if (is_dlc)
+				{
+					WIBN *dlc_data = allocate_memory(sizeof(WIBN));
+					if (!dlc_data)
+					{
+						//printf("Error allocating memory for dlc_data.\n");
+						logfile("Error allocating memory for dlc_data.\n");
+						ISFS_Close(cfd);
+						free(list);
+						free(buffer);
+						Unmount_Devices();
+						Reboot();
+					}
+					
+					memcpy(dlc_data, buffer, sizeof(WIBN));
+					
+					/* Convert string to ASCII */
+					__convertWiiString(titlename, dlc_data->name, 0x40);
+					
+					if (get_description)
+					{
+						char description[64];
+						__convertWiiString(description, dlc_data->desc, 0x40);
+						if (strlen(description) > 1) snprintf(titlename, MAX_CHARACTERS(titlename), "%s [%s]", titlename, description);
+					}
+					
+					free(dlc_data);
+				} else {
+					u32 i;
+					char str[20][42];
+					
+					IMET *banner_data = allocate_memory(sizeof(IMET));
+					if (!banner_data)
+					{
+						//printf("Error allocating memory for banner_data.\n");
+						logfile("Error allocating memory for banner_data.\n");
+						ISFS_Close(cfd);
+						free(list);
+						free(buffer);
+						Unmount_Devices();
+						Reboot();
+					}
+					
+					memcpy(banner_data, buffer, sizeof(IMET));
+					
+					/* Convert strings to ASCII */
+					for (i = 0; i < 20; i++) __convertWiiString(str[i], banner_data->names[i], 0x2A);
+					
+					/* Try to get the appropiate string for the console language */
+					if (strlen(str[lang * 2]) > 1)
+					{
+						if (get_description && strlen(str[(lang * 2) + 1]) > 1)
+						{
+							snprintf(titlename, MAX_CHARACTERS(titlename), "%s [%s]", str[lang * 2], str[(lang * 2) + 1]);
+						} else {
+							snprintf(titlename, MAX_CHARACTERS(titlename), "%s", str[lang * 2]);
+						}
+					} else {
+						/* Default to English */
+						if (get_description && strlen(str[3]) > 1)
+						{
+							snprintf(titlename, MAX_CHARACTERS(titlename), "%s [%s]", str[2], str[3]);
+						} else {
+							snprintf(titlename, MAX_CHARACTERS(titlename), "%s", str[2]);
+						}
+					}
+					
+					free(banner_data);
+				}
+				
 				free(list);
 				free(buffer);
+				
 				return titlename;
-			}
-			
-			ISFS_Close(cfd);
-			
-			if (is_dlc)
-			{
-				WIBN *dlc_data = allocate_memory(sizeof(WIBN));
-				if (!dlc_data)
-				{
-					//printf("Error allocating memory for dlc_data.\n");
-					logfile("Error allocating memory for dlc_data.\n");
-					ISFS_Close(cfd);
-					free(list);
-					free(buffer);
-					Unmount_Devices();
-					Reboot();
-				}
-				
-				memcpy(dlc_data, buffer, sizeof(WIBN));
-				
-				/* Convert string to ASCII */
-				__convertWiiString(titlename, dlc_data->name, 0x40);
-				
-				if (get_description)
-				{
-					char description[64];
-					__convertWiiString(description, dlc_data->desc, 0x40);
-					if (strlen(description) > 1) snprintf(titlename, MAX_CHARACTERS(titlename), "%s [%s]", titlename, description);
-				}
-				
-				free(dlc_data);
 			} else {
-				u32 i;
-				char str[20][42];
-				
-				IMET *banner_data = allocate_memory(sizeof(IMET));
-				if (!banner_data)
-				{
-					//printf("Error allocating memory for banner_data.\n");
-					logfile("Error allocating memory for banner_data.\n");
-					ISFS_Close(cfd);
-					free(list);
-					free(buffer);
-					Unmount_Devices();
-					Reboot();
-				}
-				
-				memcpy(banner_data, buffer, sizeof(IMET));
-				
-				/* Convert strings to ASCII */
-				for (i = 0; i < 20; i++) __convertWiiString(str[i], banner_data->names[i], 0x2A);
-				
-				/* Try to get the appropiate string for the console language */
-				if (strlen(str[lang * 2]) > 1)
-				{
-					if (get_description && strlen(str[(lang * 2) + 1]) > 1)
-					{
-						snprintf(titlename, MAX_CHARACTERS(titlename), "%s [%s]", str[lang * 2], str[(lang * 2) + 1]);
-					} else {
-						snprintf(titlename, MAX_CHARACTERS(titlename), "%s", str[lang * 2]);
-					}
-				} else {
-					/* Default to English */
-					if (get_description && strlen(str[3]) > 1)
-					{
-						snprintf(titlename, MAX_CHARACTERS(titlename), "%s [%s]", str[2], str[3]);
-					} else {
-						snprintf(titlename, MAX_CHARACTERS(titlename), "%s", str[2]);
-					}
-				}
-				
-				free(banner_data);
+				ISFS_Close(cfd);
 			}
-			
-			free(list);
-			free(buffer);
-			
-			return titlename;
 		}
 	}
 	
@@ -2405,23 +2420,23 @@ u64 copy_id(char *path)
 
 void YesNoPrompt(char *prompt, char *name, bool *option)
 {
-	u32 pressed;
+	u32 pressed, pressedGC;
 	
 	printf("\n\n%s", prompt);
 	printf("\n[A] Yes    [B] No\n");
 	
 	while(true)
 	{
-		pressed = DetectInput(DI_BUTTONS_DOWN);
+		waitforbuttonpress(&pressed, &pressedGC);
 		
-		if (pressed & WPAD_BUTTON_A)
+		if (pressed == WPAD_BUTTON_A || pressed == WPAD_CLASSIC_BUTTON_A || pressedGC == PAD_BUTTON_A)
 		{
 			*option = true;
 			logfile("%s set to true.\n", name);
 			break;
 		}
 		
-		if (pressed & WPAD_BUTTON_B)
+		if (pressed == WPAD_BUTTON_B || pressed == WPAD_CLASSIC_BUTTON_B || pressedGC == PAD_BUTTON_B)
 		{
 			*option = false;
 			logfile("%s set to false.\n", name);
@@ -2442,7 +2457,7 @@ void select_forge()
 		YesNoPrompt("Do you also want to change the WAD region?", "change_region", &change_region);
 		if (change_region)
 		{
-			u32 pressed;
+			u32 pressed, pressedGC;
 			u8 selection = 0;
 			char *region_str[4] = { "Japanese >", "< American >" , "< European >", "< **FREE**" };
 			printf("\n");
@@ -2457,19 +2472,19 @@ void select_forge()
 				printf("%s", region_str[selection]);
 				set_highlight(false);
 				
-				pressed = DetectInput(DI_BUTTONS_DOWN);
+				waitforbuttonpress(&pressed, &pressedGC);
 				
-				if (pressed & WPAD_BUTTON_LEFT)
+				if (pressed == WPAD_BUTTON_LEFT || pressed == WPAD_CLASSIC_BUTTON_LEFT || pressedGC == PAD_BUTTON_LEFT)
 				{	
 					if (selection > 0) selection--;
 				}
 				
-				if (pressed & WPAD_BUTTON_RIGHT)
+				if (pressed == WPAD_BUTTON_RIGHT || pressed == WPAD_CLASSIC_BUTTON_RIGHT || pressedGC == PAD_BUTTON_RIGHT)
 				{	
 					if (selection < 3) selection++;
 				}
 				
-				if (pressed & WPAD_BUTTON_A) break;
+				if (pressed == WPAD_BUTTON_A || pressed == WPAD_CLASSIC_BUTTON_A || pressedGC == PAD_BUTTON_A) break;
 			}
 			
 			region = selection;
@@ -2479,8 +2494,8 @@ void select_forge()
 
 void dump_menu(char *cpath, char *tmp, int cline, dirent_t *ent)
 {
-	u32 pressed;
 	u64 titleID;
+	u32 pressed, pressedGC;
 	
 	int selection = 0;
 	char *options[3] = { "Backup Savedata >", "< Restore Savedata >" , "< Backup to WAD"};
@@ -2498,20 +2513,20 @@ void dump_menu(char *cpath, char *tmp, int cline, dirent_t *ent)
 		
 		printf("\n\nPress B to return to the browser.");
 		
-		pressed = DetectInput(DI_BUTTONS_DOWN);
+		waitforbuttonpress(&pressed, &pressedGC);
 		
-		if (pressed & WPAD_BUTTON_LEFT)
+		if (pressed == WPAD_BUTTON_LEFT || pressed == WPAD_CLASSIC_BUTTON_LEFT || pressedGC == PAD_BUTTON_LEFT)
 		{	
 			if (selection > 0) selection--;
 		}
 		
-		if (pressed & WPAD_BUTTON_RIGHT)
+		if (pressed == WPAD_BUTTON_RIGHT || pressed == WPAD_CLASSIC_BUTTON_RIGHT || pressedGC == PAD_BUTTON_RIGHT)
 		{	
 			if (selection < 2) selection++;
 		}
 		
-		if (pressed & WPAD_BUTTON_B) return;
-		if (pressed & WPAD_BUTTON_A) break;
+		if (pressed == WPAD_BUTTON_B || pressed == WPAD_CLASSIC_BUTTON_B || pressedGC == PAD_BUTTON_B) return;
+		if (pressed == WPAD_BUTTON_A || pressed == WPAD_CLASSIC_BUTTON_A || pressedGC == PAD_BUTTON_A) break;
 	}
 	
 	char some[500];
@@ -2816,15 +2831,15 @@ void sd_browser()
 		}
 	}
 	
-	u32 pressed;
+	u32 pressed, pressedGC;
 	sd_browser_ent_info(ent, cline, lcnt);
 	
 	while (true)
 	{
-		pressed = DetectInput(DI_BUTTONS_DOWN);
+		waitforbuttonpress(&pressed, &pressedGC);
 		
 		/* Navigate up */
-		if (pressed & WPAD_BUTTON_UP)
+		if (pressed == WPAD_BUTTON_UP || pressed == WPAD_CLASSIC_BUTTON_UP || pressedGC == PAD_BUTTON_UP)
 		{			
 			if(cline > 0) 
 			{
@@ -2837,7 +2852,7 @@ void sd_browser()
 		}
 		
 		/* Navigate down */
-		if (pressed & WPAD_BUTTON_DOWN)
+		if (pressed == WPAD_BUTTON_DOWN || pressed == WPAD_CLASSIC_BUTTON_DOWN || pressedGC == PAD_BUTTON_DOWN)
 		{
 			if(cline < (lcnt - 1))
 			{
@@ -2850,7 +2865,7 @@ void sd_browser()
 		}
 		
 		/* Navigate left */
-		if (pressed & WPAD_BUTTON_LEFT)
+		if (pressed == WPAD_BUTTON_LEFT || pressed == WPAD_CLASSIC_BUTTON_LEFT || pressedGC == PAD_BUTTON_LEFT)
 		{
 			if (cline >= 4)
 			{
@@ -2863,7 +2878,7 @@ void sd_browser()
 		}
 		
 		/* Navigate right */
-		if (pressed & WPAD_BUTTON_RIGHT)
+		if (pressed == WPAD_BUTTON_RIGHT || pressed == WPAD_CLASSIC_BUTTON_RIGHT || pressedGC == PAD_BUTTON_RIGHT)
 		{
 			if (cline <= (lcnt - 5))
 			{
@@ -2876,7 +2891,7 @@ void sd_browser()
 		}
 		
 		/* Start conversion to WAD */
-		if (pressed & WPAD_BUTTON_A)
+		if (pressed == WPAD_BUTTON_A || pressed == WPAD_CLASSIC_BUTTON_A || pressedGC == PAD_BUTTON_A)
 		{
 			if (ent[cline].type == DIRENT_T_DIR)
 			{
@@ -2887,10 +2902,10 @@ void sd_browser()
 		}
 		
 		/* Return to the main browser screen */
-		if (pressed & WPAD_BUTTON_PLUS) break;
+		if (pressed == WPAD_BUTTON_PLUS || pressed == WPAD_CLASSIC_BUTTON_PLUS || pressedGC == PAD_TRIGGER_R) break;
 		
 		/* Chicken out */
-		if (pressed & WPAD_BUTTON_HOME)
+		if (pressed == WPAD_BUTTON_HOME || pressed == WPAD_CLASSIC_BUTTON_HOME || pressedGC == PAD_BUTTON_START)
 		{
 			printf("\nExiting...");
 			free(cm);
@@ -3057,7 +3072,7 @@ void yabdm_loop(void)
 	char tmp[ISFS_MAXPATH + 1];
 	char cpath[ISFS_MAXPATH + 1];
 	dirent_t* ent = NULL;
-	u32 pressed, lcnt = 0, cline = 0;
+	u32 pressed, pressedGC, lcnt = 0, cline = 0;
 	
 	sprintf(cpath, ROOT_DIR);
 	getdir_info(cpath, &ent, &lcnt);
@@ -3070,10 +3085,10 @@ void yabdm_loop(void)
 	
 	while(true)
 	{
-		pressed = DetectInput(DI_BUTTONS_DOWN);
+		waitforbuttonpress(&pressed, &pressedGC);
 		
 		/* Navigate up */
-		if (pressed & WPAD_BUTTON_UP)
+		if (pressed == WPAD_BUTTON_UP || pressed == WPAD_CLASSIC_BUTTON_UP || pressedGC == PAD_BUTTON_UP)
 		{			
 			if(cline > 0) 
 			{
@@ -3086,7 +3101,7 @@ void yabdm_loop(void)
 		}
 		
 		/* Navigate down */
-		if (pressed & WPAD_BUTTON_DOWN)
+		if (pressed == WPAD_BUTTON_DOWN || pressed == WPAD_CLASSIC_BUTTON_DOWN || pressedGC == PAD_BUTTON_DOWN)
 		{
 			if(cline < (lcnt - 1))
 			{
@@ -3099,7 +3114,7 @@ void yabdm_loop(void)
 		}
 		
 		/* Navigate left */
-		if (pressed & WPAD_BUTTON_LEFT)
+		if (pressed == WPAD_BUTTON_LEFT || pressed == WPAD_CLASSIC_BUTTON_LEFT || pressedGC == PAD_BUTTON_LEFT)
 		{
 			if (cline >= 4)
 			{
@@ -3112,7 +3127,7 @@ void yabdm_loop(void)
 		}
 		
 		/* Navigate right */
-		if (pressed & WPAD_BUTTON_RIGHT)
+		if (pressed == WPAD_BUTTON_RIGHT || pressed == WPAD_CLASSIC_BUTTON_RIGHT || pressedGC == PAD_BUTTON_RIGHT)
 		{
 			if (cline <= (lcnt - 5))
 			{
@@ -3125,7 +3140,7 @@ void yabdm_loop(void)
 		}
 		
 		/* Enter parent dir */
-		if (pressed & WPAD_BUTTON_B)
+		if (pressed == WPAD_BUTTON_B || pressed == WPAD_CLASSIC_BUTTON_B || pressedGC == PAD_BUTTON_B)
 		{
 			if (strlen(cpath) > 6)
 			{
@@ -3141,7 +3156,7 @@ void yabdm_loop(void)
 		}
 		
 		/* Enter dir */
-		if (pressed & WPAD_BUTTON_A)
+		if (pressed == WPAD_BUTTON_A || pressed == WPAD_CLASSIC_BUTTON_A || pressedGC == PAD_BUTTON_A)
 		{
 			// Is the current entry a dir?
 			if(ent[cline].type == DIRENT_T_DIR)
@@ -3163,7 +3178,7 @@ void yabdm_loop(void)
 		}
 		
 		/* Dump options */
-		if (pressed & WPAD_BUTTON_1)
+		if (pressed == WPAD_BUTTON_1 || pressed == WPAD_CLASSIC_BUTTON_Y || pressedGC == PAD_BUTTON_Y)
 		{
 			if (lcnt != 0 && strlen(cpath) == 15)
 			{
@@ -3173,21 +3188,21 @@ void yabdm_loop(void)
 		}
 		
 		/* Change view mode */
-		if (pressed & WPAD_BUTTON_2)
+		if (pressed == WPAD_BUTTON_2 || pressed == WPAD_CLASSIC_BUTTON_X || pressedGC == PAD_BUTTON_X)
 		{
 			ascii ^= 1;
 			browser(cpath, ent, cline, lcnt);
 		}
 		
 		/* Switch to content.bin conversion */
-		if (pressed & WPAD_BUTTON_PLUS)
+		if (pressed == WPAD_BUTTON_PLUS || pressed == WPAD_CLASSIC_BUTTON_PLUS || pressedGC == PAD_TRIGGER_R)
 		{
 			sd_browser();
 			browser(cpath, ent, cline, lcnt);
 		}
 		
 		/* Chicken out */
-		if (pressed & WPAD_BUTTON_HOME)
+		if (pressed == WPAD_BUTTON_HOME || pressed == WPAD_CLASSIC_BUTTON_HOME || pressedGC == PAD_BUTTON_START)
 		{
 			free(cm);
 			free(ent);
