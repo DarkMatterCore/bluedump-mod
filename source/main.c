@@ -44,17 +44,10 @@ int main(int argc, char* argv[])
 				printf("This is completely normal, and is because debug info will be constantly\n");
 				printf("written to the \"YABDM.log\" file in the selected storage device.\n\n");
 				printf("Press any button to continue...");
+				waitforbuttonpress(NULL, NULL);
 				
-				while(true)
-				{
-					if (DetectInput(DI_BUTTONS_DOWN) != 0)
-					{
-						resetscreen();
-						printheadline();
-						break;
-					}
-				}
-				
+				resetscreen();
+				printheadline();
 				break;
 			}
 		}
