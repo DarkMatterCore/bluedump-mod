@@ -20,6 +20,11 @@ void Reboot()
 	SYS_ResetSystem(SYS_RETURNTOMENU, 0, 0);
 }
 
+inline bool IsWiiU()
+{
+	return ((*(vu32*)(0xCD8005A0) >> 16 ) == 0xCAFE);
+}
+
 /* Big thanks to JoostinOnline for the new controller code */
 u32 DetectInput(u8 DownOrHeld)
 {
@@ -149,7 +154,8 @@ void printheadline()
 	printf(buf);
 	
 	printf("\nOriginal code by nicksasa and WiiPower.");
-	printf("\nUpdated by DarkMatterCore. Additional code by JoostinOnline.\n\n");
+	printf("\nUpdated by DarkMatterCore. Additional code by JoostinOnline.");
+	printf("\nHacksDen.com, The Hacking Resource Community (2013-2014).\n\n");
 }
 
 void set_highlight(bool highlight)

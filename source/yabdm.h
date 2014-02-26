@@ -73,6 +73,33 @@ map_entry_t *cm;
 size_t content_map_size;
 size_t content_map_items;
 
+/* Taken from Wiibrew */
+typedef struct
+{
+	u8 header[64];		// Header
+	u8 zeroes[64];		// Padding
+	u32 imet;			// "IMET" magic word
+	u32 hashsize;		// Hash length
+	u32 unk;			// 3 fixed, unknown purpose. Possibly file count?
+	u32 sizes[3];		// icon.bin, banner.bin, sound.bin
+	u32 flag1;			// unknown
+	u8 names[20][42];	// Japanese, English, German, French, Spanish, Italian, Dutch, unknown, unknown, Korean
+	u8 lol[0xC];
+} IMET;
+
+typedef struct
+{
+	u32 wibn;			// "WIBN" magic word
+	u32 flags;			// Title flags
+	u16 speed;			// Animation speed
+	u8 zeroes[22];		// Padding
+	u8 name[64];		// Title name
+	u8 desc[64];		// Title description
+} WIBN;
+
+int lang;
+u8 region;
+
 void yabdm_loop(void);
 
 #endif /* __YABDM_H__ */
