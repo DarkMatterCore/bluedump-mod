@@ -32,7 +32,11 @@ const u8 commonkey[16] = { 0xeb, 0xe4, 0x2a, 0x22, 0x5e, 0x85, 0x93, 0xe4, 0x48,
 const u8 sd_key[16] = { 0xab, 0x01, 0xb9, 0xd8, 0xe1, 0x62, 0x2b, 0x08, 0xaf, 0xba, 0xd8, 0x4d, 0xbf, 0xc2, 0xa5, 0x5d };
 const u8 sd_iv[16] = { 0x21, 0x67, 0x12, 0xe6, 0xaa, 0x1f, 0x68, 0x9f, 0x95, 0xc5, 0xa2, 0x23, 0x24, 0xdc, 0x6a, 0x98 };
 
-bool ftik = false, ftmd = false, change_region = false;
+u8 wibn_magic[4] = { 0x57, 0x49, 0x42, 0x4E };
+u8 imet_magic[4] = { 0x49, 0x4D, 0x45, 0x54 };
+
+char titlename[64], ascii_id[5];
+bool ftik = false, ftmd = false, change_region = false, ascii = false;
 
 bool MakeDir(const char *Path)
 {
@@ -271,10 +275,6 @@ s32 __convertWiiString(char *str, u8 *data, u32 cnt)
 
 	return 0;
 }
-
-u8 wibn_magic[4] = { 0x57, 0x49, 0x42, 0x4E };
-u8 imet_magic[4] = { 0x49, 0x4D, 0x45, 0x54 };
-char titlename[64];
 
 char *read_title_name(u64 titleid, bool get_description)
 {
@@ -1548,12 +1548,24 @@ bool writefolder(char *source, char *destination)
 	return true;
 }
 
-char ascii_id[5];
-bool ascii = false;
-
 char *GetASCII(u32 name)
 {
-	snprintf(ascii_id, MAX_CHARACTERS(ascii_id), "%s", (char *)(&name));
+	int i;
+	u8 temp, j = 0;
+	
+	for (i = 24; i >= 0; i -= 8)
+	{
+		temp = (name >> i) & 0xFF;
+		if (temp < 0x20 || temp > 0x7E)
+		{
+			ascii_id[j] = '.';
+		} else {
+			ascii_id[j] = temp;
+		}
+		j++;
+	}
+	
+	ascii_id[4] = 0;
 	return ascii_id;
 }
 
@@ -2420,23 +2432,23 @@ u64 copy_id(char *path)
 
 void YesNoPrompt(char *prompt, char *name, bool *option)
 {
-	u32 pressed, pressedGC;
+	u32 pressed;
 	
 	printf("\n\n%s", prompt);
 	printf("\n[A] Yes    [B] No\n");
 	
 	while(true)
 	{
-		waitforbuttonpress(&pressed, &pressedGC);
+		pressed = DetectInput(DI_BUTTONS_DOWN);
 		
-		if (pressed == WPAD_BUTTON_A || pressed == WPAD_CLASSIC_BUTTON_A || pressedGC == PAD_BUTTON_A)
+		if (pressed & WPAD_BUTTON_A)
 		{
 			*option = true;
 			logfile("%s set to true.\n", name);
 			break;
 		}
 		
-		if (pressed == WPAD_BUTTON_B || pressed == WPAD_CLASSIC_BUTTON_B || pressedGC == PAD_BUTTON_B)
+		if (pressed & WPAD_BUTTON_B)
 		{
 			*option = false;
 			logfile("%s set to false.\n", name);
@@ -2457,7 +2469,7 @@ void select_forge()
 		YesNoPrompt("Do you also want to change the WAD region?", "change_region", &change_region);
 		if (change_region)
 		{
-			u32 pressed, pressedGC;
+			u32 pressed;
 			u8 selection = 0;
 			char *region_str[4] = { "Japanese >", "< American >" , "< European >", "< **FREE**" };
 			printf("\n");
@@ -2472,19 +2484,19 @@ void select_forge()
 				printf("%s", region_str[selection]);
 				set_highlight(false);
 				
-				waitforbuttonpress(&pressed, &pressedGC);
+				pressed = DetectInput(DI_BUTTONS_DOWN);
 				
-				if (pressed == WPAD_BUTTON_LEFT || pressed == WPAD_CLASSIC_BUTTON_LEFT || pressedGC == PAD_BUTTON_LEFT)
+				if (pressed & WPAD_BUTTON_LEFT)
 				{	
 					if (selection > 0) selection--;
 				}
 				
-				if (pressed == WPAD_BUTTON_RIGHT || pressed == WPAD_CLASSIC_BUTTON_RIGHT || pressedGC == PAD_BUTTON_RIGHT)
+				if (pressed & WPAD_BUTTON_RIGHT)
 				{	
 					if (selection < 3) selection++;
 				}
 				
-				if (pressed == WPAD_BUTTON_A || pressed == WPAD_CLASSIC_BUTTON_A || pressedGC == PAD_BUTTON_A) break;
+				if (pressed & WPAD_BUTTON_A) break;
 			}
 			
 			region = selection;
@@ -2495,7 +2507,7 @@ void select_forge()
 void dump_menu(char *cpath, char *tmp, int cline, dirent_t *ent)
 {
 	u64 titleID;
-	u32 pressed, pressedGC;
+	u32 pressed;
 	
 	int selection = 0;
 	char *options[3] = { "Backup Savedata >", "< Restore Savedata >" , "< Backup to WAD"};
@@ -2513,20 +2525,20 @@ void dump_menu(char *cpath, char *tmp, int cline, dirent_t *ent)
 		
 		printf("\n\nPress B to return to the browser.");
 		
-		waitforbuttonpress(&pressed, &pressedGC);
+		pressed = DetectInput(DI_BUTTONS_DOWN);
 		
-		if (pressed == WPAD_BUTTON_LEFT || pressed == WPAD_CLASSIC_BUTTON_LEFT || pressedGC == PAD_BUTTON_LEFT)
+		if (pressed & WPAD_BUTTON_LEFT)
 		{	
 			if (selection > 0) selection--;
 		}
 		
-		if (pressed == WPAD_BUTTON_RIGHT || pressed == WPAD_CLASSIC_BUTTON_RIGHT || pressedGC == PAD_BUTTON_RIGHT)
+		if (pressed & WPAD_BUTTON_RIGHT)
 		{	
 			if (selection < 2) selection++;
 		}
 		
-		if (pressed == WPAD_BUTTON_B || pressed == WPAD_CLASSIC_BUTTON_B || pressedGC == PAD_BUTTON_B) return;
-		if (pressed == WPAD_BUTTON_A || pressed == WPAD_CLASSIC_BUTTON_A || pressedGC == PAD_BUTTON_A) break;
+		if (pressed & WPAD_BUTTON_B) return;
+		if (pressed & WPAD_BUTTON_A) break;
 	}
 	
 	char some[500];
@@ -2696,6 +2708,7 @@ void dump_menu_sd(char *cnt_path)
 	{
 		printf("\nError opening '%s' for reading.\n", cnt_path);
 		logfile("\nError opening '%s' for reading.\n", cnt_path);
+		sleep(3);
 		return;
 	}
 	
@@ -2763,9 +2776,10 @@ void sd_browser()
 		return;
 	}
 	
-	printf("Loading title names, please wait...");
-	
 	FILE *f;
+	bool cntbin_exists[lcnt];
+	
+	printf("Loading title names, please wait...");
 	
 	/* Create name list - Speeds up directory browsing */
 	for (i = 0; i < lcnt; i++)
@@ -2776,9 +2790,11 @@ void sd_browser()
 			f = fopen(tmp, "rb");
 			if (f)
 			{
+				cntbin_exists[i] = true;
 				snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), "%s", read_cntbin_name(f, true));
 				fclose(f);
 			} else {
+				cntbin_exists[i] = false;
 				switch(ent[i].name[0])
 				{
 					case 'R':
@@ -2827,19 +2843,20 @@ void sd_browser()
 				}
 			}
 		} else {
+			cntbin_exists[i] = false;
 			snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), "File");
 		}
 	}
 	
-	u32 pressed, pressedGC;
+	u32 pressed;
 	sd_browser_ent_info(ent, cline, lcnt);
 	
 	while (true)
 	{
-		waitforbuttonpress(&pressed, &pressedGC);
+		pressed = DetectInput(DI_BUTTONS_DOWN);
 		
 		/* Navigate up */
-		if (pressed == WPAD_BUTTON_UP || pressed == WPAD_CLASSIC_BUTTON_UP || pressedGC == PAD_BUTTON_UP)
+		if (pressed & WPAD_BUTTON_UP)
 		{			
 			if(cline > 0) 
 			{
@@ -2852,7 +2869,7 @@ void sd_browser()
 		}
 		
 		/* Navigate down */
-		if (pressed == WPAD_BUTTON_DOWN || pressed == WPAD_CLASSIC_BUTTON_DOWN || pressedGC == PAD_BUTTON_DOWN)
+		if (pressed & WPAD_BUTTON_DOWN)
 		{
 			if(cline < (lcnt - 1))
 			{
@@ -2865,7 +2882,7 @@ void sd_browser()
 		}
 		
 		/* Navigate left */
-		if (pressed == WPAD_BUTTON_LEFT || pressed == WPAD_CLASSIC_BUTTON_LEFT || pressedGC == PAD_BUTTON_LEFT)
+		if (pressed & WPAD_BUTTON_LEFT)
 		{
 			if (cline >= 4)
 			{
@@ -2878,7 +2895,7 @@ void sd_browser()
 		}
 		
 		/* Navigate right */
-		if (pressed == WPAD_BUTTON_RIGHT || pressed == WPAD_CLASSIC_BUTTON_RIGHT || pressedGC == PAD_BUTTON_RIGHT)
+		if (pressed & WPAD_BUTTON_RIGHT)
 		{
 			if (cline <= (lcnt - 5))
 			{
@@ -2891,9 +2908,9 @@ void sd_browser()
 		}
 		
 		/* Start conversion to WAD */
-		if (pressed == WPAD_BUTTON_A || pressed == WPAD_CLASSIC_BUTTON_A || pressedGC == PAD_BUTTON_A)
+		if (pressed & WPAD_BUTTON_A)
 		{
-			if (ent[cline].type == DIRENT_T_DIR)
+			if (ent[cline].type == DIRENT_T_DIR && cntbin_exists[cline] == true)
 			{
 				snprintf(tmp, MAX_CHARACTERS(tmp), "%s/%s/content.bin", SD_ROOT_DIR, ent[cline].name);
 				dump_menu_sd(tmp);
@@ -2902,10 +2919,10 @@ void sd_browser()
 		}
 		
 		/* Return to the main browser screen */
-		if (pressed == WPAD_BUTTON_PLUS || pressed == WPAD_CLASSIC_BUTTON_PLUS || pressedGC == PAD_TRIGGER_R) break;
+		if (pressed & WPAD_BUTTON_PLUS) break;
 		
 		/* Chicken out */
-		if (pressed == WPAD_BUTTON_HOME || pressed == WPAD_CLASSIC_BUTTON_HOME || pressedGC == PAD_BUTTON_START)
+		if (pressed & WPAD_BUTTON_HOME)
 		{
 			printf("\nExiting...");
 			free(cm);
@@ -3072,7 +3089,7 @@ void yabdm_loop(void)
 	char tmp[ISFS_MAXPATH + 1];
 	char cpath[ISFS_MAXPATH + 1];
 	dirent_t* ent = NULL;
-	u32 pressed, pressedGC, lcnt = 0, cline = 0;
+	u32 pressed, lcnt = 0, cline = 0;
 	
 	sprintf(cpath, ROOT_DIR);
 	getdir_info(cpath, &ent, &lcnt);
@@ -3085,10 +3102,10 @@ void yabdm_loop(void)
 	
 	while(true)
 	{
-		waitforbuttonpress(&pressed, &pressedGC);
+		pressed = DetectInput(DI_BUTTONS_DOWN);
 		
 		/* Navigate up */
-		if (pressed == WPAD_BUTTON_UP || pressed == WPAD_CLASSIC_BUTTON_UP || pressedGC == PAD_BUTTON_UP)
+		if (pressed & WPAD_BUTTON_UP)
 		{			
 			if(cline > 0) 
 			{
@@ -3101,7 +3118,7 @@ void yabdm_loop(void)
 		}
 		
 		/* Navigate down */
-		if (pressed == WPAD_BUTTON_DOWN || pressed == WPAD_CLASSIC_BUTTON_DOWN || pressedGC == PAD_BUTTON_DOWN)
+		if (pressed & WPAD_BUTTON_DOWN)
 		{
 			if(cline < (lcnt - 1))
 			{
@@ -3114,7 +3131,7 @@ void yabdm_loop(void)
 		}
 		
 		/* Navigate left */
-		if (pressed == WPAD_BUTTON_LEFT || pressed == WPAD_CLASSIC_BUTTON_LEFT || pressedGC == PAD_BUTTON_LEFT)
+		if (pressed & WPAD_BUTTON_LEFT)
 		{
 			if (cline >= 4)
 			{
@@ -3127,7 +3144,7 @@ void yabdm_loop(void)
 		}
 		
 		/* Navigate right */
-		if (pressed == WPAD_BUTTON_RIGHT || pressed == WPAD_CLASSIC_BUTTON_RIGHT || pressedGC == PAD_BUTTON_RIGHT)
+		if (pressed & WPAD_BUTTON_RIGHT)
 		{
 			if (cline <= (lcnt - 5))
 			{
@@ -3140,7 +3157,7 @@ void yabdm_loop(void)
 		}
 		
 		/* Enter parent dir */
-		if (pressed == WPAD_BUTTON_B || pressed == WPAD_CLASSIC_BUTTON_B || pressedGC == PAD_BUTTON_B)
+		if (pressed & WPAD_BUTTON_B)
 		{
 			if (strlen(cpath) > 6)
 			{
@@ -3156,7 +3173,7 @@ void yabdm_loop(void)
 		}
 		
 		/* Enter dir */
-		if (pressed == WPAD_BUTTON_A || pressed == WPAD_CLASSIC_BUTTON_A || pressedGC == PAD_BUTTON_A)
+		if (pressed & WPAD_BUTTON_A)
 		{
 			// Is the current entry a dir?
 			if(ent[cline].type == DIRENT_T_DIR)
@@ -3178,7 +3195,7 @@ void yabdm_loop(void)
 		}
 		
 		/* Dump options */
-		if (pressed == WPAD_BUTTON_1 || pressed == WPAD_CLASSIC_BUTTON_Y || pressedGC == PAD_BUTTON_Y)
+		if (pressed & WPAD_BUTTON_1)
 		{
 			if (lcnt != 0 && strlen(cpath) == 15)
 			{
@@ -3188,21 +3205,21 @@ void yabdm_loop(void)
 		}
 		
 		/* Change view mode */
-		if (pressed == WPAD_BUTTON_2 || pressed == WPAD_CLASSIC_BUTTON_X || pressedGC == PAD_BUTTON_X)
+		if (pressed & WPAD_BUTTON_2)
 		{
 			ascii ^= 1;
 			browser(cpath, ent, cline, lcnt);
 		}
 		
 		/* Switch to content.bin conversion */
-		if (pressed == WPAD_BUTTON_PLUS || pressed == WPAD_CLASSIC_BUTTON_PLUS || pressedGC == PAD_TRIGGER_R)
+		if (pressed & WPAD_BUTTON_PLUS)
 		{
 			sd_browser();
 			browser(cpath, ent, cline, lcnt);
 		}
 		
 		/* Chicken out */
-		if (pressed == WPAD_BUTTON_HOME || pressed == WPAD_CLASSIC_BUTTON_HOME || pressedGC == PAD_BUTTON_START)
+		if (pressed & WPAD_BUTTON_HOME)
 		{
 			free(cm);
 			free(ent);
