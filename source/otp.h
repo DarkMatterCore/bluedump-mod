@@ -25,6 +25,6 @@ typedef struct
 	u32 unk2; // 0x00000007
 } __attribute__((packed)) otp_t;
 
-void Get_OTP_data();
+s32 Get_OTP_data();
 
 #endif /* __OTP_H__ */

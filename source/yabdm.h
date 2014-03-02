@@ -63,16 +63,6 @@ typedef struct
 
 wadHeader *header;
 
-typedef struct map_entry
-{
-	char filename[8];
-	u8 sha1[20];
-} __attribute__((packed)) map_entry_t;
-
-map_entry_t *cm;
-size_t content_map_size;
-size_t content_map_items;
-
 /* Taken from Wiibrew */
 typedef struct
 {
@@ -96,9 +86,6 @@ typedef struct
 	u8 name[64];		// Title name
 	u8 desc[64];		// Title description
 } WIBN;
-
-int lang;
-u8 region;
 
 void yabdm_loop(void);
 

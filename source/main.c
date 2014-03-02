@@ -44,6 +44,7 @@ int main(int argc, char* argv[])
 				printf("This is completely normal, and is because debug info will be constantly\n");
 				printf("written to the \"YABDM.log\" file in the selected storage device.\n\n");
 				printf("Press any button to continue...");
+				fflush(stdout);
 				
 				while(true)
 				{
@@ -64,7 +65,7 @@ int main(int argc, char* argv[])
 		ret = ios_selectionmenu(236);
 		if (ret != 0)
 		{
-			printf("\n\t- Reloading to IOS%d... ", ret);
+			printf("\t- Reloading to IOS%d... ", ret);
 			WPAD_Shutdown();
 			IOS_ReloadIOS(ret);
 			sleep(2);
@@ -73,7 +74,7 @@ int main(int argc, char* argv[])
 			WPAD_SetDataFormat(WPAD_CHAN_0, WPAD_FMT_BTNS_ACC_IR);
 			printf("done.\n\n");
 		} else {
-			printf("\n\t- Proceeding without IOS reload...\n\n");
+			printf("\t- Proceeding without IOS reload...\n\n");
 		}
 	}
 	
@@ -81,16 +82,13 @@ int main(int argc, char* argv[])
 	ISFS_Initialize();
 	
 	/* Mount available storage devices */
-	printf("Mounting available storage devices...\n");
 	Mount_Devices();
 	
 	/* Main app loop */
 	yabdm_loop();
 	
-	/* Unmount storage devices, including NAND FS */
-	Unmount_Devices();
-	
-	Reboot();
+	/* Unmount storage devices (including NAND FS) and exit */
+	goodbye();
 	
 	return 0;
 }
