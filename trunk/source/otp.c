@@ -31,7 +31,7 @@ static bool OTP_Mount()
 	return *otp_ptr;
 }
 
-void Get_OTP_data()
+s32 Get_OTP_data()
 {
 	otp_t *otp_data = memalign(32, sizeof(otp_t));
 	
@@ -40,10 +40,9 @@ void Get_OTP_data()
 	{
 		OTP_Unmount();
 		free(otp_data);
-		printf("\n\nFatal error: OTP_Mount failed.");
-		logfile("\n\nFatal error: OTP_Mount failed.");
-		Unmount_Devices();
-		Reboot();
+		printf("Fatal error: OTP_Mount failed.");
+		logfile("Fatal error: OTP_Mount failed.");
+		return -1;
 	}
 	
 	memcpy(otp_data, otp_ptr, sizeof(otp_t));
@@ -60,4 +59,6 @@ void Get_OTP_data()
 	logfile("Console ID: %08x... ", console_id);
 	
 	free(otp_data);
+	
+	return 0;
 }

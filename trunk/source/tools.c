@@ -20,11 +20,6 @@ void Reboot()
 	SYS_ResetSystem(SYS_RETURNTOMENU, 0, 0);
 }
 
-inline bool IsWiiU()
-{
-	return ((*(vu32*)(0xCD8005A0) >> 16 ) == 0xCAFE);
-}
-
 /* Big thanks to JoostinOnline for the new controller code */
 u32 DetectInput(u8 DownOrHeld)
 {
@@ -79,12 +74,12 @@ u32 DetectInput(u8 DownOrHeld)
 		if (gcpressed & PAD_TRIGGER_L) pressed |= WPAD_BUTTON_MINUS;
 		if (gcpressed & PAD_BUTTON_A) pressed |= WPAD_BUTTON_A;
 		if (gcpressed & PAD_BUTTON_B) pressed |= WPAD_BUTTON_B;
-		if (gcpressed & PAD_BUTTON_X) pressed |= WPAD_BUTTON_1;
-		if (gcpressed & PAD_BUTTON_Y) pressed |= WPAD_BUTTON_2;
+		if (gcpressed & PAD_BUTTON_X) pressed |= WPAD_BUTTON_2;
+		if (gcpressed & PAD_BUTTON_Y) pressed |= WPAD_BUTTON_1;
 		if (gcpressed & PAD_BUTTON_MENU) pressed |= WPAD_BUTTON_HOME;
 		if (gcpressed & PAD_BUTTON_UP) pressed |= WPAD_BUTTON_UP;
-		if (gcpressed & PAD_BUTTON_LEFT) pressed |= WPAD_BUTTON_LEFT;
 		if (gcpressed & PAD_BUTTON_DOWN) pressed |= WPAD_BUTTON_DOWN;
+		if (gcpressed & PAD_BUTTON_LEFT) pressed |= WPAD_BUTTON_LEFT;
 		if (gcpressed & PAD_BUTTON_RIGHT) pressed |= WPAD_BUTTON_RIGHT;
 	}
 	
@@ -238,6 +233,91 @@ void Close_USB()
 	__io_usbstorage.shutdown();
 }
 
+void Unmount_Devices()
+{
+	ISFS_Deinitialize();
+	
+	if (SDmnt) Close_SD();
+	
+	if (USBmnt) Close_USB();
+}
+
+void goodbye()
+{
+	fflush(stdout);
+	if (cm) free(cm);
+	Unmount_Devices();
+	Reboot();
+}
+
+void Mount_Devices()
+{
+	int ret;
+	u32 pressed;
+	
+	printf("Mounting available storage devices...\n");
+	
+	printf("\n\t- SD Card: ");
+	ret = Init_SD();
+	if (ret < 0)
+	{
+		printf("FAILED.\n");
+		SDmnt = false;
+	} else {
+		printf("OK.\n");
+		SDmnt = true;
+	}
+	
+	printf("\n\t- USB drive: ");
+	ret = Init_USB();
+	if (ret < 0)
+	{
+		printf("FAILED.\n");
+		USBmnt = false;
+	} else {
+		printf("OK.\n");
+		USBmnt = true;
+	}
+	
+	if (SDmnt && !USBmnt)
+	{
+		isSD = true;
+		printf("\nThe SD Card will be used as the storage device.");
+		sleep(2);
+	} else
+	if (!SDmnt && USBmnt)
+	{
+		isSD = false;
+		printf("\nThe USB drive will be used as the storage device.");
+		sleep(2);
+	} else
+	if (!SDmnt && !USBmnt)
+	{
+		printf("\nNo device detected. Good bye...");
+		goodbye();
+	} else {
+		printf("\nPress A to use the SD Card.\n");
+		printf("Press B to use the USB device.");
+		
+		while(true)
+		{
+			pressed = DetectInput(DI_BUTTONS_DOWN);
+			
+			if (pressed & WPAD_BUTTON_A)
+			{
+				isSD = true;
+				break;
+			}
+			
+			if (pressed & WPAD_BUTTON_B)
+			{
+				isSD = false;
+				break;
+			}
+		}
+	}
+}
+
 int ahbprot_menu()
 {
 	s32 ret;
@@ -269,7 +349,11 @@ int ahbprot_menu()
 			}
 			
 			/* HOME/Start button */
-			if (pressed & WPAD_BUTTON_HOME) Reboot();
+			if (pressed & WPAD_BUTTON_HOME)
+			{
+				printf("Exiting...");
+				goodbye();
+			}
 		}
 		
 		printf("Initializing IOS patches... ");
@@ -400,7 +484,7 @@ int ios_selectionmenu(int default_ios)
 		printf("\n\nPress LEFT/RIGHT to change IOS version.");
 		printf("\nPress A button to load the selected IOS.");
 		printf("\nPress B to continue without IOS Reload.");
-		printf("\nPress HOME or Start to exit.\n");
+		printf("\nPress HOME or Start to exit.\n\n");
 		
 		pressed = DetectInput(DI_BUTTONS_DOWN);
 		
@@ -428,85 +512,14 @@ int ios_selectionmenu(int default_ios)
 		
 		if (pressed & WPAD_BUTTON_B) return 0;
 		
-		if (pressed & WPAD_BUTTON_HOME) Reboot();
+		if (pressed & WPAD_BUTTON_HOME)
+		{
+			printf("Exiting...");
+			goodbye();
+		}
 	}
 	
 	return list[selection];
-}
-
-void Mount_Devices()
-{
-	int ret;
-	u32 pressed;
-	
-	printf("\n\t- SD Card: ");
-	ret = Init_SD();
-	if (ret < 0)
-	{
-		printf("FAILED.\n");
-		SDmnt = false;
-	} else {
-		printf("OK.\n");
-		SDmnt = true;
-	}
-	
-	printf("\n\t- USB drive: ");
-	ret = Init_USB();
-	if (ret < 0)
-	{
-		printf("FAILED.\n");
-		USBmnt = false;
-	} else {
-		printf("OK.\n");
-		USBmnt = true;
-	}
-	
-	if (SDmnt && !USBmnt)
-	{
-		isSD = true;
-		printf("\nThe SD Card will be used as the storage device.");
-		sleep(2);
-	} else
-	if (!SDmnt && USBmnt)
-	{
-		isSD = false;
-		printf("\nThe USB drive will be used as the storage device.");
-		sleep(2);
-	} else
-	if (!SDmnt && !USBmnt)
-	{
-		printf("\nNo device detected. Good bye...");
-		Reboot();
-	} else {
-		printf("\nPress A to use the SD Card.\n");
-		printf("Press B to use the USB device.");
-		
-		while(true)
-		{
-			pressed = DetectInput(DI_BUTTONS_DOWN);
-			
-			if (pressed & WPAD_BUTTON_A)
-			{
-				isSD = true;
-				break;
-			}
-			
-			if (pressed & WPAD_BUTTON_B)
-			{
-				isSD = false;
-				break;
-			}
-		}
-	}
-}
-
-void Unmount_Devices()
-{
-	ISFS_Deinitialize();
-	
-	if (SDmnt) Close_SD();
-	
-	if (USBmnt) Close_USB();
 }
 
 void reset_log()
