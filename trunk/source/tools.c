@@ -235,8 +235,6 @@ void Close_USB()
 
 void Unmount_Devices()
 {
-	ISFS_Deinitialize();
-	
 	if (SDmnt) Close_SD();
 	
 	if (USBmnt) Close_USB();
@@ -246,6 +244,7 @@ void goodbye()
 {
 	fflush(stdout);
 	if (cm) free(cm);
+	ISFS_Deinitialize();
 	Unmount_Devices();
 	Reboot();
 }
@@ -400,21 +399,26 @@ u8 *get_ioslist(u32 *cnt)
 	u32 tcnt = 0, icnt;
 	u8 *ioses = NULL;
 	
-	//Get stored IOS versions.
+	// Get stored IOS versions.
 	res = ES_GetNumTitles(&tcnt);
-	if(res < 0)
+	if (res < 0)
 	{
 		printf("\t- ES_GetNumTitles: Error! (result = %d).\n", res);
 		return 0;
 	}
 	
 	buf = memalign(32, sizeof(u64) * tcnt);
+	if (!buf) 
+	{
+		printf("\t- Error allocating memory buffer!\n");
+		return 0;
+	}
 	
 	res = ES_GetTitles(buf, tcnt);
-	if(res < 0)
+	if (res < 0)
 	{
 		printf("\t- ES_GetTitles: Error! (result = %d).\n", res);
-		if (buf) free(buf);
+		free(buf);
 		return 0;
 	}
 
@@ -430,9 +434,16 @@ u8 *get_ioslist(u32 *cnt)
 	}
 
 	ioses = (u8 *)malloc(sizeof(u8) * icnt);
+	if (!ioses)
+	{
+		printf("\t- Error allocating IOS memory buffer!\n");
+		free(buf);
+		return 0;
+	}
+	
 	icnt = 0;
 	
-	for(i = 0; i < tcnt; i++)
+	for (i = 0; i < tcnt; i++)
 	{
 		if(*((u32 *)(&(buf[i]))) == 1 && (u32)buf[i] > 2 && (u32)buf[i] < 0x100)
 		{
@@ -451,11 +462,12 @@ u8 *get_ioslist(u32 *cnt)
 int ios_selectionmenu(int default_ios)
 {
 	u32 pressed;
-	int selection = 0;
+	int i, selection = 0;
 	u32 ioscount;
-	u8 *list = get_ioslist(&ioscount);
 	
-	int i;
+	u8 *list = get_ioslist(&ioscount);
+	if (list == 0) return -1;
+	
 	for (i = 0; i < ioscount; i++)
 	{
 		/* Default to default_ios if found, else the loaded IOS */
@@ -470,11 +482,11 @@ int ios_selectionmenu(int default_ios)
 		{
 			selection = i;
 		}
-	}	
+	}
 	
 	while (true)
 	{
-		printf("\x1B[%d;%dH",4,0);	// move console cursor to y/x
+		printf("\x1B[%d;%dH", 5, 0);	// move console cursor to y/x
 		printf("Select the IOS version to use:       \b\b\b\b\b\b");
 		
 		set_highlight(true);
@@ -515,11 +527,15 @@ int ios_selectionmenu(int default_ios)
 		if (pressed & WPAD_BUTTON_HOME)
 		{
 			printf("Exiting...");
+			free(list);
 			goodbye();
 		}
 	}
 	
-	return list[selection];
+	selection = list[selection];
+	free(list);
+	
+	return selection;
 }
 
 void reset_log()
