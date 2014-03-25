@@ -199,9 +199,15 @@ s32 getdir_info(char *path, dirent_t **ent, u32 *cnt)
 	/* Save number of entries */
 	*cnt = num;
 	
-	/* Avoid possible buffer overflow by freeing the entry buffer before reusing it */
+	/* Avoid a possible buffer overflow by freeing the entry buffer before reusing it */
 	if (*ent != NULL) free(*ent);
 	*ent = allocate_memory(sizeof(dirent_t) * num);
+	if (*ent == NULL)
+	{
+		logfile("Error allocating memory for the entry buffer!\n");
+		free(nbuf);
+		return -1;
+	}
 	
 	logfile("Directory list:\n");
 	for(i = 0, k = 0; i < num; i++)
@@ -610,20 +616,7 @@ u32 pad_data(void *ptr, u32 len, bool pad_16)
 	u32 new_size = (pad_16 ? round16(len) : round64(len));
 	u32 diff = new_size - len;
 	
-	if (diff > 0)
-	{
-		ptr = realloc(ptr, new_size);
-		if (ptr != NULL)
-		{
-			logfile("Memory buffer size reallocated successfully.\n");
-			memset(ptr + len, 0x00, diff);
-		} else {
-			printf("\nError reallocating memory buffer.");
-			logfile("Error reallocating memory buffer.");
-			free(ptr);
-			goodbye();
-		}
-	}
+	if (diff > 0 && malloc_usable_size(ptr) > len) memset(ptr + len, 0x00, diff);
 	
 	return new_size;
 }
@@ -904,7 +897,7 @@ s32 GetContent(FILE *f, u64 id, u16 content, u8* key, u16 index, u32 size)
 	}
 	
 	int ret = 0;
-	u32 i, pad, size2 = 0;
+	u32 i, size2 = 0;
 	
 	static u8 iv[16];
 	memset(iv, 0, 16);
@@ -922,23 +915,13 @@ s32 GetContent(FILE *f, u64 id, u16 content, u8* key, u16 index, u32 size)
 		if (ret < 0) break;
 		
 		/* Pad data to a 16-byte boundary (required for the encryption process). Probably only needed for the last chunk */
-		if ((blksize % 16) != 0)
-		{
-			pad = 16 - blksize % 16;
-			memset(&(buffer[blksize]), 0x00, pad);
-			blksize += pad;
-		}
+		if ((blksize % 16) != 0) blksize = pad_data(buffer, blksize, true);
 		
 		ret = aes_128_cbc_encrypt(key, iv, buffer, blksize);
 		if (ret < 0) break;
 		
 		/* Pad data to a 64-byte boundary (required for the WAD alignment). Again, probably only needed for the last chunk */
-		if ((blksize % 64) != 0)
-		{
-			pad = 64 - blksize % 64;
-			memset(&(buffer[blksize]), 0x00, pad);
-			blksize += pad;
-		}
+		if ((blksize % 64) != 0) blksize = pad_data(buffer, blksize, false);
 		
 		fwrite(buffer, blksize, 1, f);
 		
@@ -1009,9 +992,9 @@ s32 GetSharedContent(FILE *f, u8* key, u16 index, u8* hash, map_entry_t *cm, u32
 			if (ret < 0) return -1;
 			logfile("done.\n");
 			
+			/* Required for the encryption process */
 			if ((shared_size % 16) != 0)
 			{
-				/* Required for the encryption process */
 				logfile("Padding decrypted data to a 16-byte boundary... ");
 				shared_size = pad_data(shared_buf, shared_size, true);
 				logfile("done. New size: %u bytes.\n", shared_size);
@@ -1028,9 +1011,9 @@ s32 GetSharedContent(FILE *f, u8* key, u16 index, u8* hash, map_entry_t *cm, u32
 				return -1;
 			}
 			
+			/* Required for the WAD alignment */
 			if ((shared_size % 64) != 0)
 			{
-				/* Required for the WAD alignment */
 				logfile("Padding encrypted data to a 64-byte boundary... ");
 				shared_size = pad_data(shared_buf, shared_size, false);
 				logfile("done. New size: %u bytes.\n", shared_size);
@@ -1088,7 +1071,7 @@ s32 GetContentFromCntBin(FILE *cnt_bin, FILE *wadout, u16 index, u32 size, u8 *k
 	}
 	
 	int ret = 0;
-	u32 i, pad;
+	u32 i;
 	
 	static u8 iv1[16];
 	memset(iv1, 0, 16);
@@ -1123,12 +1106,7 @@ s32 GetContentFromCntBin(FILE *cnt_bin, FILE *wadout, u16 index, u32 size, u8 *k
 			{
 				/* Pad data to a 16-byte boundary (required for the encryption process) */
 				blksize -= (rounded_size - size);
-				if ((blksize % 16) != 0)
-				{
-					pad = 16 - blksize % 16;
-					memset(&(buffer[blksize]), 0x00, pad);
-					blksize += pad;
-				}
+				if ((blksize % 16) != 0) blksize = pad_data(buffer, blksize, true);
 			}
 		}
 		
@@ -1139,12 +1117,7 @@ s32 GetContentFromCntBin(FILE *cnt_bin, FILE *wadout, u16 index, u32 size, u8 *k
 		memcpy(iv2, &(buffer[SD_BLOCKSIZE - 16]), 16);
 		
 		/* Pad data to a 64-byte boundary (required for the WAD alignment). Probably only needed for the last chunk */
-		if ((blksize % 64) != 0)
-		{
-			pad = 64 - blksize % 64;
-			memset(&(buffer[blksize]), 0x00, pad);
-			blksize += pad;
-		}
+		if ((blksize % 64) != 0) blksize = pad_data(buffer, blksize, false);
 		
 		fwrite(buffer, blksize, 1, wadout);
 	}
@@ -1182,7 +1155,6 @@ s32 getdir_device(char *path, dirent_t **ent, u32 *cnt)
     {
 		//printf("\nError opening '%s'.\n", path);
 		logfile("\nError opening '%s'.\n", path);
-		sleep(3);
         return -1;
     }
 	
@@ -1201,7 +1173,7 @@ s32 getdir_device(char *path, dirent_t **ent, u32 *cnt)
 	*ent = allocate_memory(sizeof(dirent_t) * i);
 	if (*ent == NULL)
 	{
-		logfile("Error allocating memory for *ent.\n");
+		logfile("Error allocating memory for the entry buffer!\n");
 		closedir(dip);
 		return -1;
 	}
@@ -1842,12 +1814,12 @@ void browser(char cpath[ISFS_MAXPATH + 1], dirent_t* ent, int cline, int lcnt)
 	//logfile("\n\nBROWSER: Using Wii NAND. Inserted device: %s.\nPath: %s\n", (isSD ? "SD Card" : "USB Storage"), cpath);
 	
 	printf("[1/Y] Dump Options  [A] Confirm/Enter Directory  [2/X] Change view mode\n");
-	printf("[B] Cancel/Return to Parent Directory  [Home/Start] Exit\n");
-	printf("[+/R] Switch to content.bin conversion\n\n");
+	printf("[B] Cancel/Return to Parent Directory  [-/L] Remount devices\n");
+	printf("[+/R] Switch to content.bin conversion [HOME/Start] Exit\n\n");
 	
-	printf("Path: %s\n\n", cpath);
+	printf("Current device: %s. Path: %s\n\n", DEVICE(1), cpath);
 	
-	if (lcnt == 0)
+	if (lcnt == 0 || ent == NULL)
 	{
 		printf("No files/directories found!");
 		printf("\nPress B to go back to the previous directory.");
@@ -2435,7 +2407,7 @@ s32 Content_bin_Dump(FILE *cnt_bin, char* path)
 		return -1;
 	}
 	
-	if ((header->footer_len % 64) != 0) memset(&(footer_buf[header->footer_len]), 0x00, (footer_size - header->footer_len));
+	if ((header->footer_len % 64) != 0) pad_data(footer_buf, header->footer_len, false);
 	
 	fwrite(footer_buf, footer_size, 1, wadout);
 	free(footer_buf);
@@ -2503,14 +2475,15 @@ void YesNoPrompt(char *prompt, char *name, bool *option)
 	}
 }
 
-void select_forge()
+void select_forge(int type)
 {
 	YesNoPrompt("Do you want to fakesign the ticket?", "ftik", &ftik);
 	YesNoPrompt("Do you want to fakesign the TMD?", "ftmd", &ftmd);
 	
 	/* WAD region change prompt */
 	/* We cannot change the WAD region if the TMD isn't fakesigned */
-	if (ftmd)
+	/* Also, avoid showing this prompt if a system title was selected */
+	if (ftmd && type != TYPE_IOS && type != TYPE_SYSTITLE && type != TYPE_HIDDEN)
 	{
 		YesNoPrompt("Do you also want to change the WAD region?", "change_region", &change_region);
 		if (change_region)
@@ -2632,7 +2605,7 @@ void dump_menu(char *cpath, char *tmp, int cline, dirent_t *ent)
 			} else {
 				logfile("\nCreating WAD...\n");
 				
-				select_forge();
+				select_forge(ent[cline].function);
 				
 				resetscreen();
 				printheadline();
@@ -2715,7 +2688,7 @@ void dump_menu(char *cpath, char *tmp, int cline, dirent_t *ent)
 	}
 	
 	fflush(stdout);
-	sleep(3);
+	usleep(3000000);
 }
 
 void sd_browser_ent_info(dirent_t* ent, int cline, int lcnt)
@@ -2726,10 +2699,10 @@ void sd_browser_ent_info(dirent_t* ent, int cline, int lcnt)
 	
 	//logfile("\n\nSD_BROWSER: Using SD card. Inserted device: %s.\nPath: %s\n", (isSD ? "SD Card" : "USB Storage"), SD_ROOT_DIR);
 	
-	printf("[A] Convert selected title's content.bin file to WAD  [Home/Start] Exit\n");
-	printf("[+/R] Return to the main browser screen\n\n");
+	printf("[A] Convert selected title's content.bin file to WAD  [HOME/Start] Exit\n");
+	printf("[+/R] Return to the main browser screen  [-/L] Remount devices\n\n");
 	
-	printf("Path: %s\n\n", SD_ROOT_DIR);
+	printf("Current device: %s. Path: %s\n\n", DEVICE(1), SD_ROOT_DIR);
 	
 	for (i = (cline / 15)*15; i < lcnt && i < (cline / 15)*15+15; i++)
 	{
@@ -2746,7 +2719,7 @@ void dump_menu_sd(char *cnt_path)
 	resetscreen();
 	printheadline();
 	
-	select_forge();
+	select_forge(TYPE_OTHER);
 	
 	resetscreen();
 	printheadline();
@@ -2791,7 +2764,7 @@ void dump_menu_sd(char *cnt_path)
 	
 	fclose(cnt_bin);
 	fflush(stdout);
-	sleep(3);
+	usleep(3000000);
 }
 
 void sd_browser()
@@ -2970,6 +2943,20 @@ void sd_browser()
 		/* Return to the main browser screen */
 		if (pressed & WPAD_BUTTON_PLUS) break;
 		
+		/* Remount devices */
+		if (pressed & WPAD_BUTTON_MINUS)
+		{
+			resetscreen();
+			printheadline();
+			
+			/* It's safe to do this in this case because the SD directory info was already read into memory */
+			/* You can't get to this point if the SD card wasn't originally mounted before pressing +/R */
+			Unmount_Devices();
+			Mount_Devices();
+			
+			sd_browser_ent_info(ent, cline, lcnt);
+		}
+		
 		/* Chicken out */
 		if (pressed & WPAD_BUTTON_HOME)
 		{
@@ -3111,7 +3098,7 @@ void create_name_list(char cpath[ISFS_MAXPATH + 1], dirent_t* ent, int lcnt)
 
 void yabdm_loop(void)
 {
-	reset_log();
+	if (__debug) reset_log();
 	logfile("Yet Another BlueDump MOD v%s - Logfile.\n", VERSION);
 	logfile("SDmnt(%d), USBmnt(%d), isSD(%d).\n", SDmnt, USBmnt, isSD);
 	logfile("Using IOS%u v%u.\n", IOS_GetVersion(), IOS_GetRevision());
@@ -3131,7 +3118,7 @@ void yabdm_loop(void)
 	
 	content_map_items = content_map_size/sizeof(map_entry_t);
 	
-	int i = 0;
+	int i = 0, ret;
 	char tmp[ISFS_MAXPATH + 1];
 	char cpath[ISFS_MAXPATH + 1];
 	dirent_t* ent = NULL;
@@ -3152,8 +3139,8 @@ void yabdm_loop(void)
 		
 		/* Navigate up */
 		if (pressed & WPAD_BUTTON_UP)
-		{			
-			if(cline > 0) 
+		{
+			if (cline > 0) 
 			{
 				cline--;
 			} else {
@@ -3166,7 +3153,7 @@ void yabdm_loop(void)
 		/* Navigate down */
 		if (pressed & WPAD_BUTTON_DOWN)
 		{
-			if(cline < (lcnt - 1))
+			if (cline < (lcnt - 1))
 			{
 				cline++;
 			} else {
@@ -3179,27 +3166,33 @@ void yabdm_loop(void)
 		/* Navigate left */
 		if (pressed & WPAD_BUTTON_LEFT)
 		{
-			if (cline >= 4)
+			if (cline > 0)
 			{
-				cline -= 4;
-			} else {
-				cline = 0;
+				if (lcnt <= 4 || cline <= 4)
+				{
+					cline = 0;
+				} else {
+					cline -= 4;
+				}
+				
+				browser(cpath, ent, cline, lcnt);
 			}
-			
-			browser(cpath, ent, cline, lcnt);
 		}
 		
 		/* Navigate right */
 		if (pressed & WPAD_BUTTON_RIGHT)
 		{
-			if (cline <= (lcnt - 5))
+			if (cline < (lcnt - 1))
 			{
-				cline += 4;
-			} else {
-				cline = lcnt - 1;
+				if (lcnt <= 4 || cline >= (lcnt - 5))
+				{
+					cline = lcnt - 1;
+				} else {
+					cline += 4;
+				}
+				
+				browser(cpath, ent, cline, lcnt);
 			}
-			
-			browser(cpath, ent, cline, lcnt);
 		}
 		
 		/* Enter parent dir */
@@ -3207,7 +3200,7 @@ void yabdm_loop(void)
 		{
 			if (strlen(cpath) > 6)
 			{
-				for(i = strlen(cpath); cpath[i] != '/'; i--);
+				for (i = strlen(cpath); cpath[i] != '/'; i--);
 				
 				cpath[i] = 0;
 				cline = 0;
@@ -3222,20 +3215,20 @@ void yabdm_loop(void)
 		if (pressed & WPAD_BUTTON_A)
 		{
 			// Is the current entry a dir?
-			if (ent[cline].type == DIRENT_T_DIR)
+			if (lcnt != 0 && ent[cline].type == DIRENT_T_DIR)
 			{
 				strcpy(tmp, cpath);
-				if (strcmp(cpath, "/") != 0)
+				sprintf(cpath, "%s/%s", tmp, ent[cline].name);
+				
+				ret = getdir_info(cpath, &ent, &lcnt);
+				if (ret == 0)
 				{
-					sprintf(cpath, "%s/%s", tmp, ent[cline].name);
-				} else {				
-					sprintf(cpath, "/%s", ent[cline].name);
+					cline = 0;
+					create_name_list(cpath, ent, lcnt);
+				} else {
+					lcnt = 0;
 				}
 				
-				getdir_info(cpath, &ent, &lcnt);
-				create_name_list(cpath, ent, lcnt);
-				
-				cline = 0;
 				browser(cpath, ent, cline, lcnt);
 			}
 		}
@@ -3261,6 +3254,19 @@ void yabdm_loop(void)
 		if (pressed & WPAD_BUTTON_PLUS)
 		{
 			sd_browser();
+			browser(cpath, ent, cline, lcnt);
+		}
+		
+		/* Remount devices */
+		if (pressed & WPAD_BUTTON_MINUS)
+		{
+			resetscreen();
+			printheadline();
+			
+			/* Remount both SD and USB to allow their use even after the application has been loaded */
+			Unmount_Devices();
+			Mount_Devices();
+			
 			browser(cpath, ent, cline, lcnt);
 		}
 		

@@ -63,7 +63,7 @@ int main(int argc, char* argv[])
 	if (ret < 0)
 	{
 		ret = ios_selectionmenu(236);
-		if (ret != 0)
+		if (ret > 0)
 		{
 			printf("\t- Reloading to IOS%d... ", ret);
 			WPAD_Shutdown();
@@ -73,8 +73,12 @@ int main(int argc, char* argv[])
 			WPAD_Init();
 			WPAD_SetDataFormat(WPAD_CHAN_0, WPAD_FMT_BTNS_ACC_IR);
 			printf("done.\n\n");
-		} else {
+		} else
+		if (ret == 0)
+		{
 			printf("\t- Proceeding without IOS reload...\n\n");
+		} else {
+			goodbye();
 		}
 	}
 	

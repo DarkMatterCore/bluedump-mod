@@ -2,8 +2,8 @@
 	<app version="1">
 		<name>Yet Another BlueDump MOD (YABDM)</name>
 		<coder>nicksasa, DarkMatterCore</coder>
-		<version>v0.93</version>
-		<release_date>20140301205000</release_date>
+		<version>v1.0</version>
+		<release_date>20140325140000</release_date>
 		<short_description>Title and save manager</short_description>
 		<long_description>YABDM is a modification of BlueDump capable of dumping any type of title installed in your Wii console to a WAD file in a SD Card or an USB storage device. It can also backup and restore savegames in their unencrypted form. 
 
@@ -26,13 +26,15 @@ The same things applies if you want to backup savedata for a VC title: just go t
 
 === Changelog ===
 
-YABDM v0.93 (March 1st, 2014 - DarkMatterCore) (I already know I'm getting annoying, you don't have to tell me twice):
+YABDM v1.0 (March 25th, 2014 - DarkMatterCore):
 
-* The RemoveIllegalCharacters() function now also replaces non-ASCII characters with an underscore (_), since libFAT apparently has problems opening/writing files with names that include them. Thanks to erickmaniche from Emudesc for letting me know.
-* The getdir_info() and getdir_device() functions will now end early if no files are detected when reading the directory the first time. This fixes some small problems related to save dumping/restoring.
-* Logfile output cleanup (mostly, missing newlines).
-* General code cleanup. Fixed some small things I previously overlooked.
-* Exit sequence cleanup: instead of calling Unmount_Devices() and Reboot() all over again, now just goodbye() is used.
+* Eliminated the need for realloc() in pad_data(), since allocate_memory() generates buffers with sizes rounded to a 64-bite boundary; this is most likely safer. The function is now used only to write zeros.
+* The IOS buffered list is now freed before reloading to a new IOS.
+* Fixed a bug in the directory navigation code where garbled text would be printed if there were no items in the selected directory (after pressing A).
+* Fixed left/right buttons functionality for lists with elements <= 4.
+* The region change prompt now won't be displayed if a system title was selected.
+* Button -/L can now be used to remount the storage devices.
+* Some minor changes to the AES code.
 
 YABDM v0.92 (February 27th, 2014 - DarkMatterCore):
 

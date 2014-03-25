@@ -926,48 +926,22 @@ d##3 = TD0(s##3) ^ TD1(s##2) ^ TD2(s##1) ^ TD3(s##0) ^ rk[4 * i + 3]
 	PUTU32(pt + 12, s3);
 }
 
-void * aes_encrypt_init(const u8 *key, size_t len)
+void *aes_init(const u8 *key, bool Enc)
 {
-	u32 *rk;
-	if (len != 16) return NULL;
-	
-	rk = malloc(AES_PRIV_SIZE);
+	u32 *rk = malloc(AES_PRIV_SIZE);
 	if (rk == NULL) return NULL;
 	
-	rijndaelKeySetupEnc(rk, key);
+	if (Enc)
+	{
+		rijndaelKeySetupEnc(rk, key);
+	} else {
+		rijndaelKeySetupDec(rk, key);
+	}
+	
 	return rk;
 }
 
-void aes_encrypt(void *ctx, const u8 *plain, u8 *crypt)
-{
-	rijndaelEncrypt(ctx, plain, crypt);
-}
-
-
-void aes_encrypt_deinit(void *ctx)
-{
-	memset(ctx, 0, AES_PRIV_SIZE);
-	free(ctx);
-}
-
-void * aes_decrypt_init(const u8 *key, size_t len)
-{
-	u32 *rk;
-	if (len != 16) return NULL;
-	
-	rk = malloc(AES_PRIV_SIZE);
-	if (rk == NULL) return NULL;
-	
-	rijndaelKeySetupDec(rk, key);
-	return rk;
-}
-
-void aes_decrypt(void *ctx, const u8 *crypt, u8 *plain)
-{
-	rijndaelDecrypt(ctx, crypt, plain);
-}
-
-void aes_decrypt_deinit(void *ctx)
+void aes_deinit(void *ctx)
 {
 	memset(ctx, 0, AES_PRIV_SIZE);
 	free(ctx);
@@ -988,7 +962,7 @@ int aes_128_cbc_encrypt(const u8 *key, const u8 *iv, u8 *data, size_t data_len)
 	u8 *pos = data;
 	int i, j, blocks;
 	
-	ctx = aes_encrypt_init(key, 16);
+	ctx = aes_init(key, true);
 	if (ctx == NULL) return -1;
 	
 	memcpy(cbc, iv, AES_BLOCK_SIZE);
@@ -997,12 +971,12 @@ int aes_128_cbc_encrypt(const u8 *key, const u8 *iv, u8 *data, size_t data_len)
 	for (i = 0; i < blocks; i++)
 	{
 		for (j = 0; j < AES_BLOCK_SIZE; j++) cbc[j] ^= pos[j];
-		aes_encrypt(ctx, cbc, cbc);
+		rijndaelEncrypt(ctx, cbc, cbc);
 		memcpy(pos, cbc, AES_BLOCK_SIZE);
 		pos += AES_BLOCK_SIZE;
 	}
 	
-	aes_encrypt_deinit(ctx);
+	aes_deinit(ctx);
 	return 0;
 }
 
@@ -1021,7 +995,7 @@ int aes_128_cbc_decrypt(const u8 *key, const u8 *iv, u8 *data, size_t data_len)
 	u8 *pos = data;
 	int i, j, blocks;
 	
-	ctx = aes_decrypt_init(key, 16);
+	ctx = aes_init(key, false);
 	if (ctx == NULL) return -1;
 	
 	memcpy(cbc, iv, AES_BLOCK_SIZE);
@@ -1030,12 +1004,12 @@ int aes_128_cbc_decrypt(const u8 *key, const u8 *iv, u8 *data, size_t data_len)
 	for (i = 0; i < blocks; i++)
 	{
 		memcpy(tmp, pos, AES_BLOCK_SIZE);
-		aes_decrypt(ctx, pos, pos);
+		rijndaelDecrypt(ctx, pos, pos);
 		for (j = 0; j < AES_BLOCK_SIZE; j++) pos[j] ^= cbc[j];
 		memcpy(cbc, tmp, AES_BLOCK_SIZE);
 		pos += AES_BLOCK_SIZE;
 	}
 	
-	aes_decrypt_deinit(ctx);
+	aes_deinit(ctx);
 	return 0;
 }
