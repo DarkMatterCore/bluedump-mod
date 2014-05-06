@@ -1813,8 +1813,8 @@ void browser(char cpath[ISFS_MAXPATH + 1], dirent_t* ent, int cline, int lcnt)
 	
 	//logfile("\n\nBROWSER: Using Wii NAND. Inserted device: %s.\nPath: %s\n", (isSD ? "SD Card" : "USB Storage"), cpath);
 	
-	printf("[1/Y] Dump Options  [A] Confirm/Enter Directory  [2/X] Change view mode\n");
-	printf("[B] Cancel/Return to Parent Directory  [-/L] Remount devices\n");
+	printf("[1/Y] Dump options  [A] Confirm / Enter directory  [2/X] Change view mode\n");
+	printf("[B] Cancel / Return to parent directory  [-/L] Device menu\n");
 	printf("[+/R] Switch to content.bin conversion [HOME/Start] Exit\n\n");
 	
 	printf("Current device: %s. Path: %s\n\n", DEVICE(1), cpath);
@@ -2700,7 +2700,7 @@ void sd_browser_ent_info(dirent_t* ent, int cline, int lcnt)
 	//logfile("\n\nSD_BROWSER: Using SD card. Inserted device: %s.\nPath: %s\n", (isSD ? "SD Card" : "USB Storage"), SD_ROOT_DIR);
 	
 	printf("[A] Convert selected title's content.bin file to WAD  [HOME/Start] Exit\n");
-	printf("[+/R] Return to the main browser screen  [-/L] Remount devices\n\n");
+	printf("[+/R] Return to the main browser screen  [-/L] Device menu\n\n");
 	
 	printf("Current device: %s. Path: %s\n\n", DEVICE(1), SD_ROOT_DIR);
 	
@@ -2792,7 +2792,7 @@ void sd_browser()
 		if (ret == -2)
 		{
 			printf("No files/directories found in '%s'!", SD_ROOT_DIR);
-			sleep(3);
+			usleep(3000000);
 		}
 		
 		return;
@@ -2880,7 +2880,7 @@ void sd_browser()
 		/* Navigate up */
 		if (pressed & WPAD_BUTTON_UP)
 		{			
-			if(cline > 0) 
+			if (cline > 0) 
 			{
 				cline--;
 			} else {
@@ -2893,7 +2893,7 @@ void sd_browser()
 		/* Navigate down */
 		if (pressed & WPAD_BUTTON_DOWN)
 		{
-			if(cline < (lcnt - 1))
+			if (cline < (lcnt - 1))
 			{
 				cline++;
 			} else {
@@ -2906,27 +2906,33 @@ void sd_browser()
 		/* Navigate left */
 		if (pressed & WPAD_BUTTON_LEFT)
 		{
-			if (cline >= 4)
+			if (cline > 0)
 			{
-				cline -= 4;
-			} else {
-				cline = 0;
+				if (lcnt <= 4 || cline <= 4)
+				{
+					cline = 0;
+				} else {
+					cline -= 4;
+				}
+				
+				sd_browser_ent_info(ent, cline, lcnt);
 			}
-			
-			sd_browser_ent_info(ent, cline, lcnt);
 		}
 		
 		/* Navigate right */
 		if (pressed & WPAD_BUTTON_RIGHT)
 		{
-			if (cline <= (lcnt - 5))
+			if (cline < (lcnt - 1))
 			{
-				cline += 4;
-			} else {
-				cline = lcnt - 1;
+				if (lcnt <= 4 || cline >= (lcnt - 5))
+				{
+					cline = lcnt - 1;
+				} else {
+					cline += 4;
+				}
+				
+				sd_browser_ent_info(ent, cline, lcnt);
 			}
-			
-			sd_browser_ent_info(ent, cline, lcnt);
 		}
 		
 		/* Start conversion to WAD */
@@ -2943,17 +2949,11 @@ void sd_browser()
 		/* Return to the main browser screen */
 		if (pressed & WPAD_BUTTON_PLUS) break;
 		
-		/* Remount devices */
+		/* Device Menu */
 		if (pressed & WPAD_BUTTON_MINUS)
 		{
-			resetscreen();
-			printheadline();
-			
-			/* It's safe to do this in this case because the SD directory info was already read into memory */
-			/* You can't get to this point if the SD card wasn't originally mounted before pressing +/R */
-			Unmount_Devices();
-			Mount_Devices();
-			
+			/* No device swapping allowed in this case */
+			Device_Menu(false);
 			sd_browser_ent_info(ent, cline, lcnt);
 		}
 		
@@ -3257,16 +3257,10 @@ void yabdm_loop(void)
 			browser(cpath, ent, cline, lcnt);
 		}
 		
-		/* Remount devices */
+		/* Device menu */
 		if (pressed & WPAD_BUTTON_MINUS)
 		{
-			resetscreen();
-			printheadline();
-			
-			/* Remount both SD and USB to allow their use even after the application has been loaded */
-			Unmount_Devices();
-			Mount_Devices();
-			
+			Device_Menu(true);
 			browser(cpath, ent, cline, lcnt);
 		}
 		
