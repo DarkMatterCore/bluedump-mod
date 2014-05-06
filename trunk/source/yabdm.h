@@ -9,7 +9,6 @@
 
 #define ROOT_DIR "/title"
 #define SD_ROOT_DIR "sd:/private/wii/title"
-#define DEVICE(x) (((x) == 0) ? (isSD ? "sd" : "usb") : (isSD ? "SD" : "USB"))
 
 #define TYPE_SAVEDATA 	0
 #define TYPE_TITLE 		1
@@ -29,8 +28,6 @@
 #define round16(x)		round_up((x),0x10)
 
 #define MAX_CHARACTERS(x) ((sizeof((x))) / (sizeof((x)[0]))) // Returns the number of elements in an array
-
-#define ARROW " \x10"
 
 typedef struct _dirent
 {

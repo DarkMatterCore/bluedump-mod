@@ -200,28 +200,24 @@ s32 Init_USB()
 	
 	bool isMounted = fatMountSimple("usb", &__io_usbstorage);
 	
-	if(!isMounted)
+	if (!isMounted)
 	{
-		fatUnmount("usb");
-		
-		if (!fatMountSimple("usb", &__io_usbstorage)) return -1;
-		
 		bool isInserted = __io_usbstorage.isInserted();
 		
-		if(isInserted)
+		if (isInserted)
 		{
 			int retry = 10;
-			while(retry)
+			
+			while (retry > 0)
 			{ 
 				isMounted = fatMountSimple("usb", &__io_usbstorage);
-				
-				if (isMounted) break;
-				
-				sleep(1);
-				
+				if (isMounted) return 0;
+				usleep(1000000);
 				retry--;
 			}
 		}
+		
+		return -1;
 	}
 	
 	return 0;
@@ -315,6 +311,77 @@ void Mount_Devices()
 			}
 		}
 	}
+}
+
+void Device_Menu(bool swap)
+{
+	u32 pressed;
+	int i, selection = 0;
+	char *dev_opt[2] = { "SD Card", "USB Storage" };
+	
+	while(true)
+	{
+		resetscreen();
+		printheadline();
+		
+		printf("Current device: %s.\n\n", DEVICE(1));
+		printf("Select the new output device.");
+		if (swap)
+		{
+			printf(" Press B to swap/remount the storage devices.\n\n");
+		} else {
+			printf("\n\n");
+		}
+		
+		for (i = 0; i <= 1; i++)
+		{
+			printf("%s %s %s\n", ((selection == i) ? ARROW : "  "), dev_opt[i], (((selection == 0 && SDmnt) || (selection == 1 && USBmnt)) ? "(available)" : "(not available)"));
+		}
+		
+		pressed = DetectInput(DI_BUTTONS_DOWN);
+		
+		if (pressed & WPAD_BUTTON_UP)
+		{
+			if (selection > 0) selection--;
+		}
+		
+		if (pressed & WPAD_BUTTON_DOWN)
+		{
+			if (selection < 1) selection++;
+		}
+		
+		if (pressed & WPAD_BUTTON_A)
+		{
+			if ((selection == 0 && SDmnt && !isSD) || (selection == 1 && USBmnt && isSD))
+			{
+				isSD ^= 1;
+			}
+			
+			return;
+		}
+		
+		if (pressed & WPAD_BUTTON_B)
+		{
+			if (swap) break;
+		}
+	}
+	
+	resetscreen();
+	printheadline();
+	
+	Unmount_Devices();
+	
+	printf("Swap the current storage devices if you want to use different ones.\n");
+	printf("Press A when you're done to mount them.\n");
+	printf("Otherwise, you can just remount the devices already connected.\n\n");
+	
+	while(true)
+	{
+		pressed = DetectInput(DI_BUTTONS_DOWN);
+		if (pressed & WPAD_BUTTON_A) break;
+	}
+	
+	Mount_Devices();
 }
 
 int ahbprot_menu()

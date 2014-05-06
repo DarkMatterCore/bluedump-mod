@@ -6,7 +6,7 @@
 #include <runtimeiospatch.h>
 #include <malloc.h>
 
-#define VERSION "1.0"
+#define VERSION "1.1"
 
 // Values for DetectInput
 #define DI_BUTTONS_DOWN		0
@@ -14,6 +14,9 @@
 
 #define resetscreen() printf("\x1b[2J")
 #define IsWiiU() ((*(vu32*)(0xCD8005A0) >> 16 ) == 0xCAFE)
+
+#define ARROW " \x10"
+#define DEVICE(x) (((x) == 0) ? (isSD ? "sd" : "usb") : (isSD ? "SD" : "USB"))
 
 typedef struct map_entry
 {
@@ -35,6 +38,7 @@ void Con_ClearLine();
 void Unmount_Devices();
 void goodbye();
 void Mount_Devices();
+void Device_Menu(bool swap);
 int ahbprot_menu();
 int ios_selectionmenu(int default_ios);
 void reset_log();
