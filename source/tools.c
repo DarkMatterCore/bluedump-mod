@@ -335,7 +335,7 @@ void Device_Menu(bool swap)
 		
 		for (i = 0; i <= 1; i++)
 		{
-			printf("%s %s %s\n", ((selection == i) ? ARROW : "  "), dev_opt[i], (((selection == 0 && SDmnt) || (selection == 1 && USBmnt)) ? "(available)" : "(not available)"));
+			printf("%s %s %s\n", ((selection == i) ? ARROW : "  "), dev_opt[i], (((i == 0 && SDmnt) || (i == 1 && USBmnt)) ? "(available)" : "(not available)"));
 		}
 		
 		pressed = DetectInput(DI_BUTTONS_DOWN);
@@ -636,7 +636,7 @@ void logfile(const char *format, ...)
 		
 		fputs(buffer, f);
 		fclose(f);
-		va_end (args);
+		va_end(args);
 	}
 }
 
@@ -661,10 +661,10 @@ void hexdump_log(void *d, int len)
 					}  
 				}
 				logfile(" ");
-			}	
-			logfile("\n");
-		}		
-		logfile("\n");
+			}
+			logfile("\r\n");
+		}
+		logfile("\r\n");
 	}
 }
 
