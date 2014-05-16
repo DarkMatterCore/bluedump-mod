@@ -2,8 +2,8 @@
 	<app version="1">
 		<name>Yet Another BlueDump MOD (YABDM)</name>
 		<coder>nicksasa, DarkMatterCore</coder>
-		<version>v1.1</version>
-		<release_date>20140505210000</release_date>
+		<version>v1.2</version>
+		<release_date>20140516143000</release_date>
 		<short_description>Title and save manager</short_description>
 		<long_description>YABDM is a modification of BlueDump capable of dumping any type of title installed in your Wii console to a WAD file in a SD Card or an USB storage device. It can also backup and restore savegames in their unencrypted form.
 
@@ -25,6 +25,13 @@ The same things applies if you want to backup savedata for a VC title: just go t
 * The folks at HacksDen.com, for testing every new release. Special mention to stomp_442.
 
 === Changelog ===
+
+YABDM v1.2 (May 16th, 2014 - DarkMatterCore):
+
+* Updated all the debug code to use the Carriage Return + Line Feed combo, in order to make the logfile readable under Windows.
+* Unpadded Ticket size is now always set to 0x2A4 bytes. Some PC applications aren't even compatible with bigger Ticket sizes.
+* If a DLC content (type 0x4001) for the selected title is not present, it is now skipped and its info struct is removed from the TMD (which is also fakesigned in the process). The output file is also rearranged when all the available contents have been dumped. Thanks to szczuru from GBAtemp for doing **a lot** of testing.
+
 
 YABDM v1.1 (May 5th, 2014 - DarkMatterCore):
 
