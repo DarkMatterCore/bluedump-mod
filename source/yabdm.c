@@ -94,17 +94,17 @@ s32 __FileCmp(const void *a, const void *b)
 	dirent_t *hdr1 = (dirent_t *)a;
 	dirent_t *hdr2 = (dirent_t *)b;
 	
-	if (hdr1->type == hdr2->type)
+	/* Compare entries */
+	if (hdr1->type == DIRENT_T_DIR && hdr2->type == DIRENT_T_FILE)
 	{
-		return strcmp(hdr1->name, hdr2->name);
-	} else {
-		if (hdr1->type == DIRENT_T_DIR)
-		{
-			return -1;
-		} else {
-			return 1;
-		}
+		return -1;
+	} else
+	if (hdr1->type == DIRENT_T_FILE && hdr2->type == DIRENT_T_DIR)
+	{
+		return 1;
 	}
+	
+	return stricmp(hdr1->name, hdr2->name);
 }
 
 int isdir(char *path)
@@ -946,7 +946,7 @@ s32 GetContent(FILE *f, u64 id, u16 content, u8* key, u16 index, u32 size)
 	free(buffer);
 	ISFS_Close(fd);
 	
-	if (ret < 0) return -1;
+	if (ret < 0) return ret;
 	
 	logfile("Content added successfully. Original content size: %u bytes. size2: %u bytes.\r\n", size, size2);
 	printf("done.\n");
@@ -1190,7 +1190,7 @@ s32 getdir_device(char *path, dirent_t **ent, u32 *cnt)
 	{
 		logfile("Error allocating memory for the entry buffer!\r\n");
 		closedir(dip);
-		return -1;
+		return -3;
 	}
 	
 	i = 0;
@@ -2107,7 +2107,7 @@ s32 Wad_Dump(u64 id, char *path)
 	if (ret < 0)
 	{
 		printf("\nError reading content!\n");
-		logfile("Error reading content!");
+		logfile("Error reading content! (ret = %d)", ret);
 		free(header);
 		free(tmdmod);
 		fclose(wadout);
@@ -2901,24 +2901,34 @@ void sd_browser()
 		return;
 	}
 	
+	printf("Reading directory info into memory, please wait...");
+	
 	ret = getdir_device(SD_ROOT_DIR, &ent, &lcnt);
 	if (ret < 0)
 	{
 		if (ent) free(ent);
 		
-		if (ret == -2)
+		switch (ret)
 		{
-			printf("No files/directories found in '%s'!", SD_ROOT_DIR);
-			usleep(3000000);
+			case -1:
+				printf("\n\nError opening '%s'.", SD_ROOT_DIR);
+				break;
+			case -2:
+				printf("\n\nNo files/directories found in '%s'!", SD_ROOT_DIR);
+				break;
+			default:
+				printf("\n\nError allocating memory.");
+				break;
 		}
+		
+		usleep(3000000);
 		
 		return;
 	}
 	
 	FILE *f;
+	u32 cntbin_num = 0;
 	bool cntbin_exists[lcnt];
-	
-	printf("Loading title names, please wait...");
 	
 	/* Create name list - Speeds up directory browsing */
 	for (i = 0; i < lcnt; i++)
@@ -2929,61 +2939,52 @@ void sd_browser()
 			f = fopen(tmp, "rb");
 			if (f)
 			{
+				cntbin_num++;
 				cntbin_exists[i] = true;
 				snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), "%s", read_cntbin_name(f, true));
 				fclose(f);
 			} else {
 				cntbin_exists[i] = false;
-				switch(ent[i].name[0])
-				{
-					case 'R':
-					case 'S':
-						snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), "Wii disc-based game data          (content.bin not found)");
-						break;
-					case 'W':
-						snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), "WiiWare                           (content.bin not found)");
-						break;
-					case 'X':
-						snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), "MSX VC / WiiWare Demo             (content.bin not found)");
-						break;
-					case 'P':
-						snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), "TurboGraFX VC                     (content.bin not found)");
-						break;
-					case 'Q':
-						snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), "TurboGraFX CD VC                  (content.bin not found)");
-						break;
-					case 'N':
-						snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), "Nintendo 64 VC                    (content.bin not found)");
-						break;
-					case 'M':
-						snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), "Sega Genesis / Megadrive VC       (content.bin not found)");
-						break;
-					case 'L':
-						snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), "Sega Master System VC             (content.bin not found)");
-						break;
-					case 'J':
-						snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), "Super Nintendo VC                 (content.bin not found)");
-						break;
-					case 'H':
-						snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), "Wii Channel / System Title        (content.bin not found)");
-						break;
-					case 'F':
-						snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), "NES / Famicom VC                  (content.bin not found)");
-						break;
-					case 'E':
-						snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), "VC Arcade / NeoGeo                (content.bin not found)");
-						break;
-					case 'C':
-						snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), "Commodore 64 VC                   (content.bin not found)");
-						break;
-					default:
-						snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), "*** Unknown Title Type ***        (content.bin not found)");
-						break;
-				}
 			}
 		} else {
 			cntbin_exists[i] = false;
-			snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), "File");
+		}
+	}
+	
+	if (cntbin_num == 0)
+	{
+		free(ent);
+		logfile("\r\nError: couldn't find any content.bin file!");
+		printf("\n\nError: couldn't find any content.bin file!");
+		usleep(3000000);
+		return;
+	} else
+	if (cntbin_num < lcnt)
+	{
+		/* Skip dir entries without a content.bin file */
+		u32 j = 0;
+		
+		for (i = 0; i < lcnt; i++)
+		{
+			if ((cntbin_exists[i] == false) && ((lcnt - 1) > i))
+			{
+				memmove(&(ent[i - j]), &(ent[i - j + 1]), (sizeof(dirent_t) * (lcnt - i - 1)));
+				j++;
+			}
+		}
+		
+		logfile("lcnt = %u / cntbin_num = %u / j = %u.\r\n", lcnt, cntbin_num, j);
+		
+		if (realloc(ent, sizeof(dirent_t) * cntbin_num) == NULL)
+		{
+			logfile("Error reallocating memory block.\r\n");
+			printf("\n\nError reallocating memory block.");
+			
+			free(ent);
+			usleep(3000000);
+			return;
+		} else {
+			lcnt = cntbin_num;
 		}
 	}
 	
@@ -3055,7 +3056,7 @@ void sd_browser()
 		/* Start conversion to WAD */
 		if (pressed & WPAD_BUTTON_A)
 		{
-			if (ent[cline].type == DIRENT_T_DIR && cntbin_exists[cline] == true)
+			if (ent[cline].type == DIRENT_T_DIR)
 			{
 				snprintf(tmp, MAX_CHARACTERS(tmp), "%s/%s/content.bin", SD_ROOT_DIR, ent[cline].name);
 				dump_menu_sd(tmp);

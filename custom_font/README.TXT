@@ -2,4 +2,4 @@ The custom font used in the application (confont512.c) is not part of the code; 
 have to recompile the whole library.
 
 To avoid problems, I have included a copy of the modified libogc.a file. Just replace the one you already have in $(LIBOGC)/lib/wii with the
-file included in this pack.
+file included in this dir.
