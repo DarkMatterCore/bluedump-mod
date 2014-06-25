@@ -330,7 +330,7 @@ void Device_Menu(bool swap)
 		{
 			printf(" Press B to swap/remount the storage devices.\n\n");
 		} else {
-			printf("\n\n");
+			printf(" Device swapping is not allowed.\n\n");
 		}
 		
 		for (i = 0; i <= 1; i++)
@@ -352,10 +352,7 @@ void Device_Menu(bool swap)
 		
 		if (pressed & WPAD_BUTTON_A)
 		{
-			if ((selection == 0 && SDmnt && !isSD) || (selection == 1 && USBmnt && isSD))
-			{
-				isSD ^= 1;
-			}
+			if ((selection == 0 && SDmnt && !isSD) || (selection == 1 && USBmnt && isSD)) isSD ^= 1;
 			
 			return;
 		}
