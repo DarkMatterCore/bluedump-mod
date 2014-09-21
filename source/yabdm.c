@@ -1140,7 +1140,12 @@ s32 GetContentFromCntBin(FILE *cnt_bin, FILE *wadout, u16 index, u32 size, u8 *k
 		if (ret < 0) break;
 		
 		/* Hash current data block */
-		SHA1Update(&ctx, buffer, blksize);
+		if (blksize == SD_BLOCKSIZE)
+		{
+			SHA1Update(&ctx, buffer, blksize);
+		} else {
+			SHA1Update(&ctx, buffer, blksize - (rounded_size - size));
+		}
 		
 		/* Only do this if the content needs padding */
 		if ((rounded_size - size) > 0)
