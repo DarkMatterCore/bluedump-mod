@@ -13,6 +13,9 @@ extern DISC_INTERFACE __io_usbstorage;
 
 static void *xfb = NULL;
 static GXRModeObj *rmode = NULL;
+static FILE *debug_file = NULL;
+
+char *languages[10] = { "Japanese", "English", "German", "French", "Spanish", "Italian", "Dutch", "Simp. Chinese", "Trad. Chinese", "Korean" };
 
 void Reboot()
 {
@@ -27,36 +30,45 @@ u32 DetectInput(u8 DownOrHeld)
 	u32 gcpressed = 0;
 	VIDEO_WaitVSync();
 	
-	// WiiMote (and Classic Controller) take precedence over the GCN controller to save time
-	if (WPAD_ScanPads() > WPAD_ERR_NONE) // Scan the Wii remotes.  If there any problems, skip checking buttons
+	// WiiMote, Classic Controller and Wii U Pro Controller take precedence over the GCN Controller to save time
+	if (WUPC_UpdateButtonStats() > WPAD_ERR_NONE)
+	{
+		if (DownOrHeld == DI_BUTTONS_DOWN)
+		{
+			pressed = WUPC_ButtonsDown(0) | WUPC_ButtonsDown(1) | WUPC_ButtonsDown(2) | WUPC_ButtonsDown(3); // Store pressed buttons
+		} else {
+			pressed = WUPC_ButtonsHeld(0) | WUPC_ButtonsHeld(1) | WUPC_ButtonsHeld(2) | WUPC_ButtonsHeld(3); // Store held buttons
+		}
+	} else
+	if (WPAD_ScanPads() > WPAD_ERR_NONE)
 	{
 		if (DownOrHeld == DI_BUTTONS_DOWN)
 		{
 			pressed = WPAD_ButtonsDown(0) | WPAD_ButtonsDown(1) | WPAD_ButtonsDown(2) | WPAD_ButtonsDown(3); // Store pressed buttons
 		} else {
 			pressed = WPAD_ButtonsHeld(0) | WPAD_ButtonsHeld(1) | WPAD_ButtonsHeld(2) | WPAD_ButtonsHeld(3); // Store held buttons
-		}
-		
-		// Convert to WiiMote values
-		if (pressed & WPAD_CLASSIC_BUTTON_ZR) pressed |= WPAD_BUTTON_PLUS;
-		if (pressed & WPAD_CLASSIC_BUTTON_ZL) pressed |= WPAD_BUTTON_MINUS;
-		
-		if (pressed & WPAD_CLASSIC_BUTTON_PLUS) pressed |= WPAD_BUTTON_PLUS;
-		if (pressed & WPAD_CLASSIC_BUTTON_MINUS) pressed |= WPAD_BUTTON_MINUS;
-		
-		if (pressed & WPAD_CLASSIC_BUTTON_A) pressed |= WPAD_BUTTON_A;
-		if (pressed & WPAD_CLASSIC_BUTTON_B) pressed |= WPAD_BUTTON_B;
-		if (pressed & WPAD_CLASSIC_BUTTON_X) pressed |= WPAD_BUTTON_2;
-		if (pressed & WPAD_CLASSIC_BUTTON_Y) pressed |= WPAD_BUTTON_1;
-		if (pressed & WPAD_CLASSIC_BUTTON_HOME) pressed |= WPAD_BUTTON_HOME;
-		
-		if (pressed & WPAD_CLASSIC_BUTTON_UP) pressed |= WPAD_BUTTON_UP;
-		if (pressed & WPAD_CLASSIC_BUTTON_DOWN) pressed |= WPAD_BUTTON_DOWN;
-		if (pressed & WPAD_CLASSIC_BUTTON_LEFT) pressed |= WPAD_BUTTON_LEFT;
-		if (pressed & WPAD_CLASSIC_BUTTON_RIGHT) pressed |= WPAD_BUTTON_RIGHT;
+		} 
 	}
+		
+	// Convert to WiiMote values
+	if (pressed & WPAD_CLASSIC_BUTTON_ZR) pressed |= WPAD_BUTTON_PLUS;
+	if (pressed & WPAD_CLASSIC_BUTTON_ZL) pressed |= WPAD_BUTTON_MINUS;
 	
-	// Return WiiMote / Classic Controller values
+	if (pressed & WPAD_CLASSIC_BUTTON_PLUS) pressed |= WPAD_BUTTON_PLUS;
+	if (pressed & WPAD_CLASSIC_BUTTON_MINUS) pressed |= WPAD_BUTTON_MINUS;
+	
+	if (pressed & WPAD_CLASSIC_BUTTON_A) pressed |= WPAD_BUTTON_A;
+	if (pressed & WPAD_CLASSIC_BUTTON_B) pressed |= WPAD_BUTTON_B;
+	if (pressed & WPAD_CLASSIC_BUTTON_X) pressed |= WPAD_BUTTON_2;
+	if (pressed & WPAD_CLASSIC_BUTTON_Y) pressed |= WPAD_BUTTON_1;
+	if (pressed & WPAD_CLASSIC_BUTTON_HOME) pressed |= WPAD_BUTTON_HOME;
+	
+	if (pressed & WPAD_CLASSIC_BUTTON_UP) pressed |= WPAD_BUTTON_UP;
+	if (pressed & WPAD_CLASSIC_BUTTON_DOWN) pressed |= WPAD_BUTTON_DOWN;
+	if (pressed & WPAD_CLASSIC_BUTTON_LEFT) pressed |= WPAD_BUTTON_LEFT;
+	if (pressed & WPAD_CLASSIC_BUTTON_RIGHT) pressed |= WPAD_BUTTON_RIGHT;
+	
+	// Return WiiMote / Classic Controller / Wii U Pro Controller values
 	if (pressed) return pressed;
 	
 	// No buttons on the WiiMote or Classic Controller were pressed
@@ -135,7 +147,7 @@ void printheadline()
 	
 	char buf[64];
 	sprintf(buf, "IOS%u (v%u)", IOS_GetVersion(), IOS_GetRevision());
-	printf("\x1B[%d;%dH", 0, cols-strlen(buf)-1);
+	printf("\x1b[%d;%dH", 0, cols-strlen(buf)-1);
 	printf(buf);
 	
 	printf("\nOriginal code by nicksasa and WiiPower.");
@@ -231,6 +243,8 @@ void Close_USB()
 
 void Unmount_Devices()
 {
+	if (debug_file) fclose(debug_file);
+	
 	if (SDmnt) Close_SD();
 	
 	if (USBmnt) Close_USB();
@@ -352,7 +366,17 @@ void Device_Menu(bool swap)
 		
 		if (pressed & WPAD_BUTTON_A)
 		{
-			if ((selection == 0 && SDmnt && !isSD) || (selection == 1 && USBmnt && isSD)) isSD ^= 1;
+			if ((selection == 0 && SDmnt && !isSD) || (selection == 1 && USBmnt && isSD))
+			{
+				isSD ^= 1;
+				if (debug_file)
+				{
+					fclose(debug_file);
+					
+					reset_log();
+					logfile_header();
+				}
+			}
 			
 			return;
 		}
@@ -379,6 +403,9 @@ void Device_Menu(bool swap)
 	}
 	
 	Mount_Devices();
+	
+	reset_log();
+	logfile_header();
 }
 
 int ahbprot_menu()
@@ -550,7 +577,7 @@ int ios_selectionmenu(int default_ios)
 	
 	while (true)
 	{
-		printf("\x1B[%d;%dH", 5, 0);	// move console cursor to y/x
+		printf("\x1b[%d;%dH", 5, 0);	// move console cursor to y/x
 		printf("Select the IOS version to use:       \b\b\b\b\b\b");
 		
 		set_highlight(true);
@@ -616,25 +643,32 @@ void logfile(const char *format, ...)
 {
 	if (__debug)
 	{
-		char buffer[256];
-		va_list args;
-		va_start(args, format);
-		vsprintf(buffer, format, args);
-		FILE *f;
-		
-		if (isSD)
+		if (!debug_file)
 		{
-			f = fopen("sd:/YABDM.log", "a");
-		} else {
-			f = fopen("usb:/YABDM.log", "a");
+			if (isSD)
+			{
+				debug_file = fopen("sd:/YABDM.log", "a");
+			} else {
+				debug_file = fopen("usb:/YABDM.log", "a");
+			}
 		}
 		
-		if (!f) return;
+		if (!debug_file) return;
 		
-		fputs(buffer, f);
-		fclose(f);
+		va_list args;
+		va_start(args, format);
+		vfprintf(debug_file, format, args);
+		fflush(debug_file);
 		va_end(args);
 	}
+}
+
+void logfile_header()
+{
+	logfile("\r\nYet Another BlueDump MOD v%s - Logfile.\r\n", VERSION);
+	logfile("SDmnt(%d), USBmnt(%d), isSD(%d).\r\n", SDmnt, USBmnt, isSD);
+	logfile("Using IOS%u v%u.\r\n", IOS_GetVersion(), IOS_GetRevision());
+	logfile("Console language: %d (%s).\r\n\r\n", lang, languages[lang]);
 }
 
 void hexdump_log(void *d, int len)

@@ -23,6 +23,7 @@ int main(int argc, char* argv[])
 	printf("\x1b[%u;%um", 37, false);
 	
 	PAD_Init();
+	WUPC_Init();
 	WPAD_Init();
 	WPAD_SetDataFormat(WPAD_CHAN_0, WPAD_FMT_BTNS_ACC_IR);
 	
@@ -31,7 +32,8 @@ int main(int argc, char* argv[])
 	vwii = IsWiiU();
 	__debug = false;
 	
-	for (i = 1; i < argc; i++)
+	/* Also check argv[0], since it appears the "debug" argument gets passed here if Wiiload is launched from a batch script */
+	for (i = 0; i < argc; i++)
 	{
 		if (CHECK_ARG("debug="))
 		{
@@ -66,10 +68,12 @@ int main(int argc, char* argv[])
 		if (ret > 0)
 		{
 			printf("\t- Reloading to IOS%d... ", ret);
+			WUPC_Shutdown();
 			WPAD_Shutdown();
 			IOS_ReloadIOS(ret);
 			sleep(2);
 			PAD_Init();
+			WUPC_Init();
 			WPAD_Init();
 			WPAD_SetDataFormat(WPAD_CHAN_0, WPAD_FMT_BTNS_ACC_IR);
 			printf("done.\n\n");

@@ -3,10 +3,11 @@
 
 #include <sys/unistd.h>
 #include <wiiuse/wpad.h>
+#include <wupc/wupc.h>
 #include <runtimeiospatch.h>
 #include <malloc.h>
 
-#define VERSION "1.3"
+#define VERSION "1.4"
 
 // Values for DetectInput
 #define DI_BUTTONS_DOWN		0
@@ -28,6 +29,7 @@ map_entry_t *cm;
 size_t content_map_size;
 size_t content_map_items;
 
+int lang;
 bool SDmnt, USBmnt, isSD, __debug, vwii;
 
 u32 DetectInput(u8 DownOrHeld);
@@ -43,6 +45,7 @@ int ahbprot_menu();
 int ios_selectionmenu(int default_ios);
 void reset_log();
 void logfile(const char *format, ...);
+void logfile_header();
 void hexdump_log(void *d, int len);
 void hex_key_dump(void *d, int len);
 
