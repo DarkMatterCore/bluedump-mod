@@ -32,11 +32,9 @@ const u8 commonkey[16] = { 0xeb, 0xe4, 0x2a, 0x22, 0x5e, 0x85, 0x93, 0xe4, 0x48,
 const u8 sd_key[16] = { 0xab, 0x01, 0xb9, 0xd8, 0xe1, 0x62, 0x2b, 0x08, 0xaf, 0xba, 0xd8, 0x4d, 0xbf, 0xc2, 0xa5, 0x5d };
 const u8 sd_iv[16] = { 0x21, 0x67, 0x12, 0xe6, 0xaa, 0x1f, 0x68, 0x9f, 0x95, 0xc5, 0xa2, 0x23, 0x24, 0xdc, 0x6a, 0x98 };
 
-int lang;
 u8 region;
 char titlename[64], ascii_id[5];
 bool ftik = false, ftmd = false, change_region = false, ascii = false;
-char *languages[10] = { "Japanese", "English", "German", "French", "Spanish", "Italian", "Dutch", "Simp. Chinese", "Trad. Chinese", "Korean" };
 
 bool MakeDir(const char *Path)
 {
@@ -75,9 +73,7 @@ bool create_folders(char *path)
 	while (next != last)
 	{
 		next = strchr((char *)(next+1),'/');
-		strncpy(buf, path, (u32)(next-path));
-		buf[(u32)(next-path)] = 0;
-		
+		snprintf(buf, (u32)(next-path+1), path);
 		if (!MakeDir(buf)) return false;
 	}
 	
@@ -216,8 +212,8 @@ s32 getdir_info(char *path, dirent_t **ent, u32 *cnt)
 		ebuf[j] = 0;
 		k++;
 		
-		sprintf((*ent)[i].name, "%s", ebuf);
-		sprintf(pbuf, "%s/%s", path, ebuf);
+		snprintf((*ent)[i].name, MAX_CHARACTERS((*ent)[i].name), ebuf);
+		snprintf(pbuf, MAX_CHARACTERS(pbuf), "%s/%s", path, ebuf);
 		logfile("%s\r\n", pbuf);
 		(*ent)[i].type = ((isdir(pbuf) == 1) ? DIRENT_T_DIR : DIRENT_T_FILE);
 		
@@ -456,7 +452,7 @@ char *read_title_name(u64 titleid, bool get_description)
 						{
 							snprintf(titlename, MAX_CHARACTERS(titlename), "%s [%s]", str[lang * 2], str[(lang * 2) + 1]);
 						} else {
-							snprintf(titlename, MAX_CHARACTERS(titlename), "%s", str[lang * 2]);
+							snprintf(titlename, MAX_CHARACTERS(titlename), str[lang * 2]);
 						}
 					} else {
 						/* Default to English */
@@ -464,7 +460,7 @@ char *read_title_name(u64 titleid, bool get_description)
 						{
 							snprintf(titlename, MAX_CHARACTERS(titlename), "%s [%s]", str[2], str[3]);
 						} else {
-							snprintf(titlename, MAX_CHARACTERS(titlename), "%s", str[2]);
+							snprintf(titlename, MAX_CHARACTERS(titlename), str[2]);
 						}
 					}
 					
@@ -541,9 +537,8 @@ char *read_save_name(u64 titleid, bool get_description)
 char *get_name(u64 titleid, bool get_description)
 {
 	char *temp;
-	u32 high = TITLE_UPPER(titleid);
 	
-	if (high == 0x00010000 && TITLE_LOWER(titleid) != 0x48415a41)
+	if (TITLE_UPPER(titleid) == 0x00010000 && TITLE_LOWER(titleid) != 0x48415a41)
 	{
 		temp = read_save_name(titleid, get_description);
 	} else {
@@ -594,7 +589,7 @@ char *read_cntbin_name(FILE *cnt_bin, bool get_description)
 		{
 			snprintf(titlename, MAX_CHARACTERS(titlename), "%s [%s]", str[lang * 2], str[(lang * 2) + 1]);
 		} else {
-			snprintf(titlename, MAX_CHARACTERS(titlename), "%s", str[lang * 2]);
+			snprintf(titlename, MAX_CHARACTERS(titlename), str[lang * 2]);
 		}
 	} else {
 		/* Default to English */
@@ -602,7 +597,7 @@ char *read_cntbin_name(FILE *cnt_bin, bool get_description)
 		{
 			snprintf(titlename, MAX_CHARACTERS(titlename), "%s [%s]", str[2], str[3]);
 		} else {
-			snprintf(titlename, MAX_CHARACTERS(titlename), "%s", str[2]);
+			snprintf(titlename, MAX_CHARACTERS(titlename), str[2]);
 		}
 	}
 	
@@ -884,13 +879,20 @@ void GetCerts(FILE *f)
 	header->certs_len = cert_sys_size;
 }
 
-s32 GetContent(FILE *f, u64 id, u16 content, u8* key, u16 index, u32 size)
+s32 GetContent(FILE *f, u64 id, u16 content, u8* key, u16 index, u32 size, u8 *hash)
 {
 	char path[ISFS_MAXPATH];
+	
+	/* Used to hold the current state of the SHA-1 hash during calculation */
+	SHA1_CTX ctx;
+	SHA1Init(&ctx);
 	
 	snprintf(path, MAX_CHARACTERS(path), "/title/%08x/%08x/content/%08x.app", TITLE_UPPER(id), TITLE_LOWER(id), content);
 	logfile("Regular content path is '%s'.\r\n", path);
 	printf("Adding regular content %08x.app... ", content);
+	logfile("TMD hash: ");
+	hex_key_dump(hash, 20);
+	logfile("\r\n");
 	
 	s32 fd = ISFS_Open(path, ISFS_OPEN_READ);
 	if (fd < 0)
@@ -929,6 +931,9 @@ s32 GetContent(FILE *f, u64 id, u16 content, u8* key, u16 index, u32 size)
 		ret = ISFS_Read(fd, buffer, blksize);
 		if (ret < 0) break;
 		
+		/* Hash current data block */
+		SHA1Update(&ctx, buffer, blksize);
+		
 		/* Pad data to a 16-byte boundary (required for the encryption process). Probably only needed for the last chunk */
 		if ((blksize % 16) != 0) blksize = pad_data(buffer, blksize, true);
 		
@@ -945,6 +950,19 @@ s32 GetContent(FILE *f, u64 id, u16 content, u8* key, u16 index, u32 size)
 	
 	free(buffer);
 	ISFS_Close(fd);
+	
+	sha1 cnthash;
+	SHA1Final(cnthash, &ctx);
+	logfile("Dumped content hash: ");
+	hex_key_dump(cnthash, 20);
+	logfile("\r\n");
+	
+	if (memcmp(hash, cnthash, 20) != 0)
+	{
+		printf("\nError: hash didn't match!\n");
+		logfile("Error: hash didn't match!\r\n");
+		if (ret >= 0) ret = -1;
+	}
 	
 	if (ret < 0) return ret;
 	
@@ -1070,10 +1088,18 @@ s32 GetSharedContent(FILE *f, u8* key, u16 index, u8* hash, map_entry_t *cm, u32
 	return 0;
 }
 
-s32 GetContentFromCntBin(FILE *cnt_bin, FILE *wadout, u16 index, u32 size, u8 *key)
+s32 GetContentFromCntBin(FILE *cnt_bin, FILE *wadout, u16 index, u32 size, u8 *key, u8 *hash)
 {
 	u32 rounded_size = round64(size);
 	u32 blksize = SD_BLOCKSIZE; // 32 KB
+	
+	/* Used to hold the current state of the SHA-1 hash during calculation */
+	SHA1_CTX ctx;
+	SHA1Init(&ctx);
+	
+	logfile("TMD hash: ");
+	hex_key_dump(hash, 20);
+	logfile("\r\n");
 	
 	u8 *buffer = allocate_memory(blksize);
 	if (buffer == NULL)
@@ -1113,6 +1139,9 @@ s32 GetContentFromCntBin(FILE *cnt_bin, FILE *wadout, u16 index, u32 size, u8 *k
 		ret = aes_128_cbc_decrypt(prng_key, iv1, buffer, blksize);
 		if (ret < 0) break;
 		
+		/* Hash current data block */
+		SHA1Update(&ctx, buffer, blksize);
+		
 		/* Only do this if the content needs padding */
 		if ((rounded_size - size) > 0)
 		{
@@ -1138,7 +1167,21 @@ s32 GetContentFromCntBin(FILE *cnt_bin, FILE *wadout, u16 index, u32 size, u8 *k
 	}
 	
 	free(buffer);
-	if (ret < 0) return -1;
+	
+	sha1 cnthash;
+	SHA1Final(cnthash, &ctx);
+	logfile("Dumped content hash: ");
+	hex_key_dump(cnthash, 20);
+	logfile("\r\n");
+	
+	if (memcmp(hash, cnthash, 20) != 0)
+	{
+		printf("\nError: hash didn't match!\n");
+		logfile("Error: hash didn't match!\r\n");
+		if (ret >= 0) ret = -1;
+	}
+	
+	if (ret < 0) return ret;
 	
 	logfile("Content added successfully. Original content size: %u bytes. rounded_size: %u bytes.\r\n", size, rounded_size);
 	printf("done.\n");
@@ -1164,7 +1207,7 @@ s32 getdir_device(char *path, dirent_t **ent, u32 *cnt)
 	u32 i = 0;
 	DIR *dip;
     struct dirent *dit;
-	char pbuf[ISFS_MAXPATH + 1];
+	char pbuf[ISFS_MAXPATH + 1] = {0};
 	
 	if ((dip = opendir(path)) == NULL)
     {
@@ -1200,8 +1243,8 @@ s32 getdir_device(char *path, dirent_t **ent, u32 *cnt)
     {
 		if (strncmp(dit->d_name, ".", 1) != 0 && strncmp(dit->d_name, "..", 2) != 0)
 		{
-			strcpy((*ent)[i].name, dit->d_name);
-			sprintf(pbuf, "%s/%s", path, dit->d_name);
+			snprintf((*ent)[i].name, MAX_CHARACTERS((*ent)[i].name), dit->d_name);
+			snprintf(pbuf, MAX_CHARACTERS(pbuf), "%s/%s", path, dit->d_name);
 			logfile("%s\r\n", pbuf);
 			(*ent)[i].type = ((isdir_device(pbuf) == 1) ? DIRENT_T_DIR : DIRENT_T_FILE);
 			(*ent)[i].function = TYPE_OTHER;
@@ -1653,7 +1696,7 @@ void install_savedata(u64 titleID)
 	snprintf(isfs_path, MAX_CHARACTERS(isfs_path), "/title/%08x/%08x/data", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
 	logfile("ISFS path is '%s'.\r\n", isfs_path);
 	
-	sprintf(dev_path, "%s:/YABDM/Savedata", DEVICE(0));
+	snprintf(dev_path, MAX_CHARACTERS(dev_path), "%s:/YABDM/Savedata", DEVICE(0));
 	
 	/* Search savedata directory on external storage */
 	u32 i, tcnt;
@@ -2037,14 +2080,14 @@ s32 Wad_Dump(u64 id, char *path)
 		logfile("Processing content #%u... ", cnt);
 		tmd_content *content = &tmd_data->contents[cnt];
 		
-		if (cnt == 0) sprintf(footer_path, "/title/%08x/%08x/content/%08x.app", TITLE_UPPER(id), TITLE_LOWER(id), content->cid);
+		if (cnt == 0) snprintf(footer_path, MAX_CHARACTERS(footer_path), "/title/%08x/%08x/content/%08x.app", TITLE_UPPER(id), TITLE_LOWER(id), content->cid);
 		
 		logfile("Content type 0x%04x... ", content->type);
 		switch(content->type)
 		{
 			case 0x0001: // Normal
 			case 0x4001: // DLC
-				ret = GetContent(wadout, id, content->cid, (u8*)key, content->index, (u32)content->size);
+				ret = GetContent(wadout, id, content->cid, (u8*)key, content->index, (u32)content->size, content->hash);
 				if (content->type == 0x4001 && ret == -106)
 				{
 					ret = 0; // Nothing happened here, boy.
@@ -2456,9 +2499,9 @@ s32 Content_bin_Dump(FILE *cnt_bin, char* path)
 		switch (content->type)
 		{
 			case 0x0001: // Normal
-			case 0x4001: // DLC, I'm not sure if this type of content gets included or not, but let's be on the safe side
+			case 0x4001: // DLC, I'm not sure if this type of content gets included or not, but let's stay on the safe side
 				printf("Adding regular content %08x... ", content->cid);
-				ret = GetContentFromCntBin(cnt_bin, wadout, content->index, (u32)content->size, (u8*)key);
+				ret = GetContentFromCntBin(cnt_bin, wadout, content->index, (u32)content->size, (u8*)key, content->hash);
 				break;
 			case 0x8001: // Shared, they don't get included in the content.bin file
 				ret = GetSharedContent(wadout, (u8*)key, content->index, content->hash, cm, content_map_items);
@@ -2550,18 +2593,14 @@ s32 Content_bin_Dump(FILE *cnt_bin, char* path)
 u64 copy_id(char *path)
 {
 	//logfile("COPY_ID: path = %s.\r\n", path);
-	char *low_out = allocate_memory(10);
-	memset(low_out, 0, 10);
-	char *high_out = allocate_memory(10);
-	memset(high_out, 0, 10);	
+	char low_out[10], high_out[10];
 	
-	strncpy(high_out, path+7, 8);
-	strncpy(low_out, path+16, 8);
+	snprintf(high_out, 9, path+7);
+	snprintf(low_out, 9, path+16);
 
-	u64 titleID = TITLE_ID(strtol(high_out, NULL, 16), strtol(low_out,NULL,16));
-	logfile("Generated COPY_ID was '%08x-%08x'.\r\n", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
-	free(low_out);
-	free(high_out);
+	u64 titleID = TITLE_ID(strtol(high_out, NULL, 16), strtol(low_out, NULL, 16));
+	//logfile("Generated COPY_ID was '%08x-%08x'.\r\n", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
+	
 	return titleID;
 }
 
@@ -2602,7 +2641,7 @@ void select_forge(int type)
 	/* Also, avoid showing this prompt if a system title was selected */
 	if (ftmd && type != TYPE_IOS && type != TYPE_SYSTITLE && type != TYPE_HIDDEN)
 	{
-		YesNoPrompt("Do you also want to change the WAD region?", "change_region", &change_region);
+		YesNoPrompt("Do you want to change the output WAD region?", "change_region", &change_region);
 		if (change_region)
 		{
 			u32 pressed;
@@ -2617,7 +2656,7 @@ void select_forge(int type)
 				printf("Select the new region: ");
 				
 				set_highlight(true);
-				printf("%s", region_str[selection]);
+				printf(region_str[selection]);
 				set_highlight(false);
 				
 				pressed = DetectInput(DI_BUTTONS_DOWN);
@@ -2640,9 +2679,8 @@ void select_forge(int type)
 	}
 }
 
-void dump_menu(char *cpath, char *tmp, int cline, dirent_t *ent)
+void dump_menu(char *cpath, int cline, dirent_t *ent)
 {
-	u64 titleID;
 	u32 pressed;
 	
 	int selection = 0;
@@ -2656,7 +2694,7 @@ void dump_menu(char *cpath, char *tmp, int cline, dirent_t *ent)
 		printf("Select what to do: ");
 		
 		set_highlight(true);
-		printf("%s", options[selection]);
+		printf(options[selection]);
 		set_highlight(false);
 		
 		printf("\n\nPress B to return to the browser.");
@@ -2677,24 +2715,20 @@ void dump_menu(char *cpath, char *tmp, int cline, dirent_t *ent)
 		if (pressed & WPAD_BUTTON_A) break;
 	}
 	
-	char some[500];
-	strcpy(tmp, cpath);
-	if(strcmp(cpath, "/") != 0)
-	{
-		sprintf(some, "%s/%s", tmp, ent[cline].name);
-	} else {				
-		sprintf(some, "/%s", ent[cline].name);
-	}
+	char some[ISFS_MAXPATH + 1];
+	snprintf(some, MAX_CHARACTERS(some), "%s/%s", cpath, ent[cline].name);
 	
 	logfile("\r\n[DUMP_MENU] Selected item: %s.\r\n", some);
+	u64 titleID = copy_id(some);
+	u32 low = TITLE_LOWER(titleID);
+	
 	switch(selection)
 	{
 		case 0: // Backup savedata
-			if ((ent[cline].function == TYPE_SAVEDATA && strncmp(ent[cline].name, "48415a41", 8) != 0) || ent[cline].function == TYPE_TITLE || ent[cline].function == TYPE_GAMECHAN)
+			if ((ent[cline].function == TYPE_SAVEDATA && low != 0x48415a41) || ent[cline].function == TYPE_TITLE || ent[cline].function == TYPE_GAMECHAN)
 			{
 				printf("\n\nBacking up savedata...\n\n");
 				logfile("Backing up savedata...\r\n");
-				titleID = copy_id(some);
 				extract_savedata(titleID);
 			} else {
 				printf("\n\nThe title you chose has no savedata!\n");
@@ -2702,11 +2736,10 @@ void dump_menu(char *cpath, char *tmp, int cline, dirent_t *ent)
 			}
 			break;
 		case 1: // Restore savedata
-			if ((ent[cline].function == TYPE_SAVEDATA && strncmp(ent[cline].name, "48415a41", 8) != 0) || ent[cline].function == TYPE_TITLE || ent[cline].function == TYPE_GAMECHAN)
+			if ((ent[cline].function == TYPE_SAVEDATA && low != 0x48415a41) || ent[cline].function == TYPE_TITLE || ent[cline].function == TYPE_GAMECHAN)
 			{
 				printf("\n\nRestoring savedata...\n\n");
 				logfile("Restoring savedata...\r\n");
-				titleID = copy_id(some);
 				install_savedata(titleID);
 			} else {
 				printf("\n\nThe title you chose has no savedata!\n");
@@ -2716,10 +2749,12 @@ void dump_menu(char *cpath, char *tmp, int cline, dirent_t *ent)
 		case 2: // Backup to WAD
 			/* Workaround for HAZA (00010000-48415a41) */
 			/* This title is responsible for changing the Photo Channel v1.0 placeholder in the System Menu to v1.1 */
-			if ((ent[cline].function == TYPE_SAVEDATA && strncmp(ent[cline].name, "48415a41", 8) != 0) || ent[cline].function == TYPE_OTHER)
+			if ((ent[cline].function == TYPE_SAVEDATA && low != 0x48415a41) || ent[cline].function == TYPE_OTHER)
 			{
 				printf("\n\nThis is not a title! Use the savedata functions for this.\n");
 			} else {
+				char dump_path[100];
+				
 				logfile("\r\nCreating WAD...\r\n");
 				
 				select_forge(ent[cline].function);
@@ -2727,35 +2762,6 @@ void dump_menu(char *cpath, char *tmp, int cline, dirent_t *ent)
 				resetscreen();
 				printheadline();
 				printf("Creating WAD...\n");
-				
-				char dump_path[100];
-				
-				switch (ent[cline].function)
-				{
-					case TYPE_SAVEDATA:
-						titleID = TITLE_ID(0x00010000, strtoll(ent[cline].name, NULL, 16));
-						break;
-					case TYPE_TITLE:
-						titleID = TITLE_ID(0x00010001, strtoll(ent[cline].name, NULL, 16));
-						break;
-					case TYPE_SYSTITLE:
-						titleID = TITLE_ID(0x00010002, strtoll(ent[cline].name, NULL, 16));
-						break;
-					case TYPE_GAMECHAN:
-						titleID = TITLE_ID(0x00010004, strtoll(ent[cline].name, NULL, 16));
-						break;
-					case TYPE_DLC:
-						titleID = TITLE_ID(0x00010005, strtoll(ent[cline].name, NULL, 16));
-						break;
-					case TYPE_HIDDEN:
-						titleID = TITLE_ID(0x00010008, strtoll(ent[cline].name, NULL, 16));
-						break;
-					default: // TYPE_IOS
-						titleID = TITLE_ID(0x00000001, strtoll(ent[cline].name, NULL, 16));
-						break;
-				}
-				
-				u32 low = TITLE_LOWER(titleID);
 				
 				if (ent[cline].function == TYPE_SAVEDATA || ent[cline].function == TYPE_TITLE || ent[cline].function == TYPE_SYSTITLE || ent[cline].function == TYPE_GAMECHAN || ent[cline].function == TYPE_DLC)
 				{
@@ -2941,7 +2947,7 @@ void sd_browser()
 			{
 				cntbin_num++;
 				cntbin_exists[i] = true;
-				snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), "%s", read_cntbin_name(f, true));
+				snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), read_cntbin_name(f, true));
 				fclose(f);
 			} else {
 				cntbin_exists[i] = false;
@@ -3090,7 +3096,7 @@ void sd_browser()
 void create_name_list(char cpath[ISFS_MAXPATH + 1], dirent_t* ent, int lcnt)
 {
 	if (lcnt == 0) return;
-
+	
 	int i;
 	for (i = 0; i < lcnt; i++)
 	{
@@ -3143,6 +3149,12 @@ void create_name_list(char cpath[ISFS_MAXPATH + 1], dirent_t* ent, int lcnt)
 				case 0x00000101:
 					snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), "MIOS v%u", get_version(TITLE_ID(0x00000001, 0x00000101)));
 					break;
+				case 0x00000200:
+					snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), "BC-NAND v%u", get_version(TITLE_ID(0x00000001, 0x00000200)));
+					break;
+				case 0x00000201:
+					snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), "BC-WFS v%u", get_version(TITLE_ID(0x00000001, 0x00000201)));
+					break;
 				default:
 					snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), "IOS%u v%u", (u32)strtol(ent[i].name, NULL, 16), get_version(TITLE_ID(0x00000001, strtoll(ent[i].name, NULL, 16))));
 					break;
@@ -3189,41 +3201,41 @@ void create_name_list(char cpath[ISFS_MAXPATH + 1], dirent_t* ent, int lcnt)
 		} else
 		if (ent[i].function == TYPE_SAVEDATA)
 		{
-			snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), "%s", get_name(TITLE_ID(0x00010000, strtoll(ent[i].name, NULL, 16)), true));
+			snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), get_name(TITLE_ID(0x00010000, strtoll(ent[i].name, NULL, 16)), true));
 		} else
 		if (ent[i].function == TYPE_TITLE)
 		{
-			snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), "%s", get_name(TITLE_ID(0x00010001, strtoll(ent[i].name, NULL, 16)), true));
+			snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), get_name(TITLE_ID(0x00010001, strtoll(ent[i].name, NULL, 16)), true));
 		} else
 		if (ent[i].function == TYPE_SYSTITLE)
 		{
-			snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), "%s", get_name(TITLE_ID(0x00010002, strtoll(ent[i].name, NULL, 16)), false));
+			snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), get_name(TITLE_ID(0x00010002, strtoll(ent[i].name, NULL, 16)), false));
 		} else
 		if (ent[i].function == TYPE_GAMECHAN)
 		{
-			snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), "%s", get_name(TITLE_ID(0x00010004, strtoll(ent[i].name, NULL, 16)), true));
+			snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), get_name(TITLE_ID(0x00010004, strtoll(ent[i].name, NULL, 16)), true));
 		} else
 		if (ent[i].function == TYPE_DLC)
 		{
-			snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), "%s", get_name(TITLE_ID(0x00010005, strtoll(ent[i].name, NULL, 16)), true));
+			snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), get_name(TITLE_ID(0x00010005, strtoll(ent[i].name, NULL, 16)), true));
 		} else
 		if (ent[i].function == TYPE_OTHER)
 		{
-			snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), "%s", (ent[i].type == DIRENT_T_DIR ? "Directory" : "File"));
+			snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), (ent[i].type == DIRENT_T_DIR ? "Directory" : "File"));
 		}
 	}
 }
 
 void yabdm_loop(void)
 {
-	if (__debug) reset_log();
-	logfile("Yet Another BlueDump MOD v%s - Logfile.\r\n", VERSION);
-	logfile("SDmnt(%d), USBmnt(%d), isSD(%d).\r\n", SDmnt, USBmnt, isSD);
-	logfile("Using IOS%u v%u.\r\n", IOS_GetVersion(), IOS_GetRevision());
-	
 	/* Get Console Language */
 	lang = CONF_GetLanguage();
-	logfile("Console language: %d (%s).\r\n\r\n", lang, languages[lang]);
+	
+	if (__debug)
+	{
+		reset_log();
+		logfile_header();
+	}
 	
 	/* Read the content.map file here to avoid reading it at a later time */
 	GetContentMap();
@@ -3242,7 +3254,7 @@ void yabdm_loop(void)
 	dirent_t* ent = NULL;
 	u32 pressed, lcnt = 0, cline = 0;
 	
-	sprintf(cpath, ROOT_DIR);
+	snprintf(cpath, MAX_CHARACTERS(cpath), ROOT_DIR);
 	getdir_info(cpath, &ent, &lcnt);
 	
 	/* Create name list - Speeds up directory browsing */
@@ -3335,8 +3347,8 @@ void yabdm_loop(void)
 			// Is the current entry a dir?
 			if (lcnt != 0 && ent[cline].type == DIRENT_T_DIR)
 			{
-				strcpy(tmp, cpath);
-				sprintf(cpath, "%s/%s", tmp, ent[cline].name);
+				snprintf(tmp, MAX_CHARACTERS(tmp), cpath);
+				snprintf(cpath, MAX_CHARACTERS(cpath), "%s/%s", tmp, ent[cline].name);
 				
 				ret = getdir_info(cpath, &ent, &lcnt);
 				if (ret == 0)
@@ -3356,7 +3368,7 @@ void yabdm_loop(void)
 		{
 			if (lcnt != 0 && strlen(cpath) == 15)
 			{
-				dump_menu(cpath, tmp, cline, ent);
+				dump_menu(cpath, cline, ent);
 				browser(cpath, ent, cline, lcnt);
 			}
 		}

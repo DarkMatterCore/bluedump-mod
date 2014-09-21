@@ -28,19 +28,19 @@ INCLUDES	:=
 CFLAGS	= -g -O1 -Wall -mrvl $(MACHDEP) $(INCLUDE)
 CXXFLAGS	=	$(CFLAGS)
 
-LDFLAGS =	-g $(MACHDEP) -Wl,-Map,$(notdir $@).map
+LDFLAGS =	-g $(MACHDEP) -Wl,-Map,$(notdir $@).map,-wrap,wiiuse_register
 
 #---------------------------------------------------------------------------------
 # any extra libraries we wish to link with the project
 #---------------------------------------------------------------------------------
-LIBS	:=  -lfat -lwiiuse -lbte -lm -logc -lruntimeiospatch
+LIBS	:=  -lfat -lwupc -lwiiuse -lbte -lm -logc -lruntimeiospatch
 
 
 #---------------------------------------------------------------------------------
 # list of directories containing libraries, this must be the top level containing
 # include and lib
 #---------------------------------------------------------------------------------
-LIBDIRS	:= $(CURDIR)/libruntimeiospatch
+LIBDIRS	:= $(CURDIR)/portlibs
 
 #---------------------------------------------------------------------------------
 # no real need to edit anything past this point unless you need to add additional
@@ -105,7 +105,7 @@ clean:
 	@rm -fr $(BUILD) $(OUTPUT).elf $(OUTPUT).dol
 #---------------------------------------------------------------------------------
 run:
-	wiiload $(TARGET).elf
+	wiiload $(TARGET).elf debug=1
 #---------------------------------------------------------------------------------
 else
 
