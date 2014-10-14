@@ -27,8 +27,6 @@
 #define round64(x)      round_up((x),0x40)
 #define round16(x)		round_up((x),0x10)
 
-#define MAX_CHARACTERS(x) ((sizeof((x))) / (sizeof((x)[0]))) // Returns the number of elements in an array
-
 typedef struct _dirent
 {
 	char name[ISFS_MAXPATH + 1];
@@ -84,6 +82,6 @@ typedef struct
 	u8 desc[64];		// Title description
 } WIBN;
 
-void yabdm_loop(void);
+void yabdm_loop(char *lpath);
 
 #endif /* __YABDM_H__ */

@@ -7,7 +7,7 @@
 #include <runtimeiospatch.h>
 #include <malloc.h>
 
-#define VERSION "1.41"
+#define VERSION "1.5"
 
 // Values for DetectInput
 #define DI_BUTTONS_DOWN		0
@@ -18,6 +18,7 @@
 
 #define ARROW " \x10"
 #define DEVICE(x) (((x) == 0) ? (isSD ? "sd" : "usb") : (isSD ? "SD" : "USB"))
+#define MAX_CHARACTERS(x) ((sizeof((x))) / (sizeof((x)[0]))) // Returns the number of elements in an array
 
 typedef struct map_entry
 {
@@ -30,8 +31,10 @@ size_t content_map_size;
 size_t content_map_items;
 
 int lang;
-bool SDmnt, USBmnt, isSD, __debug, vwii;
+bool SDmnt, USBmnt, isSD, __debug, vwii, __wiilight;
 
+u32 __fread(void *out, u32 size, u32 cnt, FILE *src);
+u32 __fwrite(const void *src, u32 size, u32 cnt, FILE *out);
 u32 DetectInput(u8 DownOrHeld);
 void Init_Console();
 void printheadline();

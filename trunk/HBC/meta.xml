@@ -2,8 +2,8 @@
 	<app version="1">
 		<name>Yet Another BlueDump MOD (YABDM)</name>
 		<coder>nicksasa, DarkMatterCore</coder>
-		<version>v1.41</version>
-		<release_date>20140921200000</release_date>
+		<version>v1.5</version>
+		<release_date>20141013220000</release_date>
 		<short_description>Title and save manager</short_description>
 		<long_description>YABDM is a modification of BlueDump capable of dumping any type of title installed in your Wii console to a WAD file in a SD Card or an USB storage device. It can also backup and restore savegames in their unencrypted form.
 
@@ -23,8 +23,19 @@ The same things applies if you want to backup savedata for a VC title: just go t
 * TriiForce and FSToolBox projects (WiiPower and nicksasa).
 * JoostinOnline, for his continuous help and ideas.
 * The folks at HacksDen.com, for testing every new release. Special mention to stomp_442.
+* Vincent Rijmen, Antoon Bosselaers and Paulo Barreto, for their "rijndael-alg-fast" AES implementation.
+* FIX94, for his libwupc library, used in the application to add support with Wii U Pro Controllers.
+* Excelsiior, for his libruntimeiospatch library, used to apply IOS patches at runtime.
 
 === Changelog ===
+
+YABDM v1.5 (October 13th, 2014 - DarkMatterCore):
+
+* Fixed the region change procedure for DLC titles. Their Title IDs will now reflect the selected new region (in order to make them detectable by their corresponding game/channel).
+* The region change prompt will now always be displayed. Keep in mind that if you enable this option, the Ticket and/or TMD will be fakesigned automatically, depending on the category of the selected title (even if you choose not to). 
+* If the application detects that the Common Key Index is different than 0, it will automatically fakesign the Ticket (even if you choose not to), instead of only changing its value.
+* Reimplemented the Wii disc light feature as an optional read/write indicator. You can enable it through the use of the "wiilight" argument in the meta.xml file.
+* Reimplemented the ability to update the application straight from the Google Code SVN repository, by pressing buttons A and B at the same time. The meta.xml file will also get updated.
 
 YABDM v1.41 (September 21st, 2014 - DarkMatterCore):
 
@@ -146,7 +157,7 @@ MOD v0.3 (August 24th, 2013 - DarkMatterCore):
 
 MOD v0.2 (August 15th, 2013 - DarkMatterCore):
 
-* Now using libruntimeiospatch by Excelsior to apply patches to the current IOS.
+* Now using libruntimeiospatch by Excelsiior to apply patches to the current IOS.
 * Fixed illegal FAT characters on dumped savegames. They are now replaced with an underscore (_).
 * Added full support for contents bigger than 45MB. The GetContent() function was completely rewritten to dump each regular content file in chunks of 16KB, which are read, encrypted and saved to the output WAD. Because of this, the encrypt_buffer() function is not used anymore in GetContent(), since we need to change the Initialization Vector (IV) for each chunk.
 * Other minor fixes and corrections.
@@ -194,5 +205,6 @@ Alpha 1:
 <ahb_access/>
 <arguments>
 	<arg>debug=0</arg>
+	<arg>wiilight=1</arg>
 </arguments>
 	</app> 
