@@ -17,6 +17,34 @@ static FILE *debug_file = NULL;
 
 char *languages[10] = { "Japanese", "English", "German", "French", "Spanish", "Italian", "Dutch", "Simp. Chinese", "Trad. Chinese", "Korean" };
 
+static vu32 *_wiilight_reg = (u32*)0xCD0000C0;
+
+void WiiDiscLight(bool turn_on)
+{
+	if (__wiilight)
+	{
+		*_wiilight_reg = ((*_wiilight_reg & ~0x20) | (turn_on ? 0x20 : 0x00));
+	}
+}
+
+u32 __fread(void *out, u32 size, u32 cnt, FILE *src)
+{
+	WiiDiscLight(true);
+	u32 ret = fread(out, size, cnt, src);
+	WiiDiscLight(false);
+	
+	return ret;
+}
+
+u32 __fwrite(const void *src, u32 size, u32 cnt, FILE *out)
+{
+	WiiDiscLight(true);
+	u32 ret = fwrite(src, size, cnt, out);
+	WiiDiscLight(false);
+	
+	return ret;
+}
+
 void Reboot()
 {
 	if (*(u32*)0x80001800) exit(0);
@@ -312,13 +340,13 @@ void Mount_Devices()
 		{
 			pressed = DetectInput(DI_BUTTONS_DOWN);
 			
-			if (pressed & WPAD_BUTTON_A)
+			if (pressed == WPAD_BUTTON_A)
 			{
 				isSD = true;
 				break;
 			}
 			
-			if (pressed & WPAD_BUTTON_B)
+			if (pressed == WPAD_BUTTON_B)
 			{
 				isSD = false;
 				break;
@@ -354,17 +382,17 @@ void Device_Menu(bool swap)
 		
 		pressed = DetectInput(DI_BUTTONS_DOWN);
 		
-		if (pressed & WPAD_BUTTON_UP)
+		if (pressed == WPAD_BUTTON_UP)
 		{
 			if (selection > 0) selection--;
 		}
 		
-		if (pressed & WPAD_BUTTON_DOWN)
+		if (pressed == WPAD_BUTTON_DOWN)
 		{
 			if (selection < 1) selection++;
 		}
 		
-		if (pressed & WPAD_BUTTON_A)
+		if (pressed == WPAD_BUTTON_A)
 		{
 			if ((selection == 0 && SDmnt && !isSD) || (selection == 1 && USBmnt && isSD))
 			{
@@ -381,7 +409,7 @@ void Device_Menu(bool swap)
 			return;
 		}
 		
-		if (pressed & WPAD_BUTTON_B)
+		if (pressed == WPAD_BUTTON_B)
 		{
 			if (swap) break;
 		}
@@ -399,7 +427,7 @@ void Device_Menu(bool swap)
 	while(true)
 	{
 		pressed = DetectInput(DI_BUTTONS_DOWN);
-		if (pressed & WPAD_BUTTON_A) break;
+		if (pressed == WPAD_BUTTON_A) break;
 	}
 	
 	Mount_Devices();
@@ -428,10 +456,10 @@ int ahbprot_menu()
 			pressed = DetectInput(DI_BUTTONS_DOWN);
 			
 			/* A button */
-			if (pressed & WPAD_BUTTON_A) break;
+			if (pressed == WPAD_BUTTON_A) break;
 			
 			/* B button */
-			if (pressed & WPAD_BUTTON_B)
+			if (pressed == WPAD_BUTTON_B)
 			{
 				resetscreen();
 				printheadline();
@@ -439,7 +467,7 @@ int ahbprot_menu()
 			}
 			
 			/* HOME/Start button */
-			if (pressed & WPAD_BUTTON_HOME)
+			if (pressed == WPAD_BUTTON_HOME)
 			{
 				printf("Exiting...");
 				goodbye();
@@ -591,7 +619,7 @@ int ios_selectionmenu(int default_ios)
 		
 		pressed = DetectInput(DI_BUTTONS_DOWN);
 		
-		if (pressed & WPAD_BUTTON_LEFT)
+		if (pressed == WPAD_BUTTON_LEFT)
 		{	
 			if (selection > 0)
 			{
@@ -601,7 +629,7 @@ int ios_selectionmenu(int default_ios)
 			}
 		}
 		
-		if (pressed & WPAD_BUTTON_RIGHT)
+		if (pressed == WPAD_BUTTON_RIGHT)
 		{
 			if (selection < ioscount -1)
 			{
@@ -611,11 +639,11 @@ int ios_selectionmenu(int default_ios)
 			}
 		}
 		
-		if (pressed & WPAD_BUTTON_A) break;
+		if (pressed == WPAD_BUTTON_A) break;
 		
-		if (pressed & WPAD_BUTTON_B) return 0;
+		if (pressed == WPAD_BUTTON_B) return 0;
 		
-		if (pressed & WPAD_BUTTON_HOME)
+		if (pressed == WPAD_BUTTON_HOME)
 		{
 			printf("Exiting...");
 			free(list);
@@ -655,18 +683,22 @@ void logfile(const char *format, ...)
 		
 		if (!debug_file) return;
 		
+		WiiDiscLight(true);
+		
 		va_list args;
 		va_start(args, format);
 		vfprintf(debug_file, format, args);
 		fflush(debug_file);
 		va_end(args);
+		
+		WiiDiscLight(false);
 	}
 }
 
 void logfile_header()
 {
 	logfile("\r\nYet Another BlueDump MOD v%s - Logfile.\r\n", VERSION);
-	logfile("SDmnt(%d), USBmnt(%d), isSD(%d).\r\n", SDmnt, USBmnt, isSD);
+	logfile("SDmnt(%d), USBmnt(%d), isSD(%d), __wiilight(%d).\r\n", SDmnt, USBmnt, isSD, __wiilight);
 	logfile("Using IOS%u v%u.\r\n", IOS_GetVersion(), IOS_GetRevision());
 	logfile("Console language: %d (%s).\r\n\r\n", lang, languages[lang]);
 }
@@ -677,7 +709,7 @@ void hexdump_log(void *d, int len)
 	{
 		int i, f, off;
 		u8 *data = (u8*)d;
-		for (off=0; off<len; off += 16) 
+		for (off=0; off<len; off += 16)
 		{
 			logfile("%08x:  ",16*(off/16));
 			for(f=0; f < 16; f += 4)

@@ -26,6 +26,7 @@
 #include "aes.h"
 #include "sha1.h"
 #include "otp.h"
+#include "net.h"
 #include "../build/cert_sys.h"
 
 const u8 commonkey[16] = { 0xeb, 0xe4, 0x2a, 0x22, 0x5e, 0x85, 0x93, 0xe4, 0x48, 0xd9, 0xc5, 0x45, 0x73, 0x81, 0xaa, 0xf7 };
@@ -34,7 +35,7 @@ const u8 sd_iv[16] = { 0x21, 0x67, 0x12, 0xe6, 0xaa, 0x1f, 0x68, 0x9f, 0x95, 0xc
 
 u8 region;
 char titlename[64], ascii_id[5];
-bool ftik = false, ftmd = false, change_region = false, ascii = false;
+bool ftik = false, ftmd = false, change_region = false, ascii = false, isDLC = false;
 
 bool MakeDir(const char *Path)
 {
@@ -567,7 +568,7 @@ char *read_cntbin_name(FILE *cnt_bin, bool get_description)
 		goodbye();
 	}
 	
-	fread(buf, sizeof(IMET), 1, cnt_bin);
+	__fread(buf, sizeof(IMET), 1, cnt_bin);
 	
 	ret = aes_128_cbc_decrypt(sd_key, sd_iv, (u8*)buf, sizeof(IMET));
 	if (ret < 0)
@@ -763,19 +764,37 @@ void forge(signed_blob *data, bool is_tmd, bool verbose)
 	u8 *ptr = (u8*)data;
 	if (is_tmd && change_region)
 	{
-		/* Change WAD region */
-		ptr[0x19D] = region;
-		if (verbose)
+		if (!isDLC)
 		{
-			printf("Region changed to 0x%02x. ", region);
-			logfile("Region changed to 0x%02x. ", region);
+			/* Change WAD region in TMD */
+			ptr[0x19D] = region;
+		} else {
+			/* If the selected title is a DLC, change title ID to match the new region */
+			/* Otherwise, it won't be detected by its parent game/title from the new region */
+			ptr[0x193] = region;
 		}
 	} else
 	if (!is_tmd)
 	{
+		if (isDLC && change_region)
+		{
+			/* If the selected title is a DLC, change title ID to match the new region */
+			/* Otherwise, it won't be detected by its parent game/title from the new region */
+			ptr[0x1E3] = region;
+			
+			/* Change 4th byte of the Permitted Titles Mask (parent TID region) */
+			ptr[0x1EB] = region;
+		}
+		
 		/* Wipe Console ID and ECDH data to avoid installation errors on other Wiis */
 		memset(ptr + 0x180, 0, 0x3C);
 		memset(ptr + 0x1D8, 0, 4);
+	}
+	
+	if (verbose && change_region)
+	{
+		printf("Region changed to 0x%02x. ", region);
+		logfile("Region changed to 0x%02x. ", region);
 	}
 }
 
@@ -815,7 +834,7 @@ s32 GetTMD(FILE *f, u64 id, signed_blob **tmd)
 	if (ftmd) forge(*tmd, true, true);
 	
 	/* Write to output WAD */
-	fwrite(*tmd, tmd_size, 1, f);
+	__fwrite(*tmd, tmd_size, 1, f);
 	
 	return 0;
 }	
@@ -850,15 +869,22 @@ s32 GetTicket(FILE *f, u64 id, signed_blob **tik)
 		logfile("Padded Ticket size = %u.\r\n", tik_size);
 	}
 	
+	/* Change the Common Key Index to 0x00 */
+	/* Useful to avoid installation errors with WADs dumped from a Korean Wii (0x01) or vWii (0x02) */
+	if (buffer[0x1F1] > 0)
+	{
+		printf("\nSetting Common Key Index to 0x00 (was 0x%02x). ", buffer[0x1F1]);
+		logfile("Setting Common Key Index to 0x00 (was 0x%02x). ", buffer[0x1F1]);
+		
+		buffer[0x1F1] = 0x00;
+		if (!ftik) ftik = true;
+	}
+	
 	/* Fakesign ticket if the user chose to */
 	if (ftik) forge((signed_blob *)buffer, false, true);
 	
-	/* Change the common key index to '00' */
-	/* Useful to avoid installation errors with WADs dumped from vWii or a Korean Wii */
-	if ((buffer[0x1F1] == 0x01) || (buffer[0x1F1] == 0x02)) buffer[0x1F1] = 0x00;
-	
 	/* Write to output WAD */
-	fwrite(buffer, tik_size, 1, f);
+	__fwrite(buffer, tik_size, 1, f);
 	
 	*tik = (signed_blob *)buffer;
 	
@@ -874,7 +900,7 @@ void GetCerts(FILE *f)
 		goodbye();
 	}
 	
-	fwrite(cert_sys, cert_sys_size, 1, f);
+	__fwrite(cert_sys, cert_sys_size, 1, f);
 	
 	header->certs_len = cert_sys_size;
 }
@@ -943,7 +969,7 @@ s32 GetContent(FILE *f, u64 id, u16 content, u8* key, u16 index, u32 size, u8 *h
 		/* Pad data to a 64-byte boundary (required for the WAD alignment). Again, probably only needed for the last chunk */
 		if ((blksize % 64) != 0) blksize = pad_data(buffer, blksize, false);
 		
-		fwrite(buffer, blksize, 1, f);
+		__fwrite(buffer, blksize, 1, f);
 		
 		size2 += blksize;
 	}
@@ -1059,11 +1085,11 @@ s32 GetSharedContent(FILE *f, u8* key, u16 index, u8* hash, map_entry_t *cm, u32
 			{
 				if (restsize >= SD_BLOCKSIZE)
 				{
-					fwrite(&(shared_buf[writeindex]), SD_BLOCKSIZE, 1, f);
+					__fwrite(&(shared_buf[writeindex]), SD_BLOCKSIZE, 1, f);
 					restsize = restsize - SD_BLOCKSIZE;
 					writeindex = writeindex + SD_BLOCKSIZE;
 				} else {
-					fwrite(&(shared_buf[writeindex]), restsize, 1, f);
+					__fwrite(&(shared_buf[writeindex]), restsize, 1, f);
 					restsize = 0;
 				}
 			}
@@ -1131,10 +1157,10 @@ s32 GetContentFromCntBin(FILE *cnt_bin, FILE *wadout, u16 index, u32 size, u8 *k
 		if (i > 0)
 		{
 			fseek(cnt_bin, -16, SEEK_CUR);
-			fread(iv1, 16, 1, cnt_bin);
+			__fread(iv1, 16, 1, cnt_bin);
 		}
 		
-		fread(buffer, blksize, 1, cnt_bin);
+		__fread(buffer, blksize, 1, cnt_bin);
 		
 		ret = aes_128_cbc_decrypt(prng_key, iv1, buffer, blksize);
 		if (ret < 0) break;
@@ -1168,7 +1194,7 @@ s32 GetContentFromCntBin(FILE *cnt_bin, FILE *wadout, u16 index, u32 size, u8 *k
 		/* Pad data to a 64-byte boundary (required for the WAD alignment). Probably only needed for the last chunk */
 		if ((blksize % 64) != 0) blksize = pad_data(buffer, blksize, false);
 		
-		fwrite(buffer, blksize, 1, wadout);
+		__fwrite(buffer, blksize, 1, wadout);
 	}
 	
 	free(buffer);
@@ -1332,8 +1358,8 @@ s32 dumpfile(char *source, char *destination)
 			return ret;
 		}
 		
-		ret = fwrite(buffer, size, 1, file);
-		if (ret < 0) 
+		ret = __fwrite(buffer, size, 1, file);
+		if (ret != 1) 
 		{
 			//printf("\nfwrite error: %d.\n", ret);
 			logfile("\r\nfwrite error: %d.\r\n", ret);
@@ -1406,8 +1432,8 @@ s32 flash(char* source, char* destination)
 			size = restsize;
 		}
 		
-		ret = fread(buffer, size, 1, file);
-		if (!ret) 
+		ret = __fread(buffer, size, 1, file);
+		if (ret != 1) 
 		{
 			//printf("Error reading data from '%s' (ret = %d).\n", source, ret);
 			logfile("Error reading data from '%s' (ret = %d).\r\n", source, ret);
@@ -1763,7 +1789,7 @@ void install_savedata(u64 titleID)
 /* Info taken from Wiibrew */
 char *GetSysMenuVersion(u16 version)
 {
-	switch(version)
+	switch (version)
 	{
 		case 33:
 			return "v1.0";
@@ -1876,9 +1902,9 @@ void browser(char cpath[ISFS_MAXPATH + 1], dirent_t* ent, int cline, int lcnt)
 	
 	//logfile("\r\n\r\nBROWSER: Using Wii NAND. Inserted device: %s.\r\nPath: %s\r\n", (isSD ? "SD Card" : "USB Storage"), cpath);
 	
-	printf("[1/Y] Dump options  [A] Confirm / Enter directory  [2/X] Change view mode\n");
-	printf("[B] Cancel / Return to parent directory  [-/L] Device menu\n");
-	printf("[+/R] Switch to content.bin conversion [HOME/Start] Exit\n\n");
+	printf("[A] Confirm / Enter directory  [B] Cancel / Return to parent directory\n");
+	printf("[1/Y] Dump options  [2/X] Change view mode  [A+B] Update application\n");
+	printf("[-/L] Device menu  [+/R] Content.bin conversion  [HOME/Start] Exit\n\n");
 	
 	printf("Current device: %s. Path: %s\n\n", DEVICE(1), cpath);
 	
@@ -1936,19 +1962,21 @@ void make_header(void)
 	header = now;
 }	
 
-s32 get_title_key(signed_blob *s_tik, u8 *key)
+s32 get_title_key(u64 tid, signed_blob *s_tik, u8 *key)
 {
 	static u8 iv[16] ATTRIBUTE_ALIGN(0x20);
 	static u8 keyout[16] ATTRIBUTE_ALIGN(0x20);
 
 	const tik *p_tik = (tik *)SIGNATURE_PAYLOAD(s_tik);
+	
 	u8 *enc_key = (u8 *)&p_tik->cipher_title_key;
 	memcpy(keyout, enc_key, sizeof(keyout));
+	
 	logfile("\r\nEncrypted Title Key = ");
 	hex_key_dump(keyout, sizeof(keyout));
 	
 	memset(iv, 0, sizeof(iv));
-	memcpy(iv, &p_tik->titleid, sizeof(p_tik->titleid));
+	memcpy(iv, &tid, sizeof(tid));
 	
 	if (aes_128_cbc_decrypt(commonkey, iv, keyout, sizeof(keyout)) < 0)
 	{
@@ -2009,7 +2037,7 @@ s32 Wad_Dump(u64 id, char *path)
 		goodbye();
 	}
 	memset(padding_table, 0, 64);
-	fwrite(padding_table, 64, 1, wadout);
+	__fwrite(padding_table, 64, 1, wadout);
 	free(padding_table);
 	
 	/* Get Certs */
@@ -2051,7 +2079,7 @@ s32 Wad_Dump(u64 id, char *path)
 	/* Get Title Key */
 	printf("Decrypting AES Title Key... ");
 	logfile("Decrypting AES Title Key... ");
-	ret = get_title_key(p_tik, (u8 *)key);
+	ret = get_title_key(id, p_tik, (u8 *)key);
 	free(p_tik);
 	
 	if (ret < 0)
@@ -2088,7 +2116,7 @@ s32 Wad_Dump(u64 id, char *path)
 		if (cnt == 0) snprintf(footer_path, MAX_CHARACTERS(footer_path), "/title/%08x/%08x/content/%08x.app", TITLE_UPPER(id), TITLE_LOWER(id), content->cid);
 		
 		logfile("Content type 0x%04x... ", content->type);
-		switch(content->type)
+		switch (content->type)
 		{
 			case 0x0001: // Normal
 			case 0x4001: // DLC
@@ -2182,7 +2210,7 @@ s32 Wad_Dump(u64 id, char *path)
 	
 	header->footer_len = footer_size;
 	if ((footer_size % 64) != 0) footer_size = pad_data(footer_buf, footer_size, false);
-	fwrite(footer_buf, footer_size, 1, wadout);
+	__fwrite(footer_buf, footer_size, 1, wadout);
 	free(footer_buf);
 	
 	printf("done.\n");
@@ -2202,7 +2230,7 @@ s32 Wad_Dump(u64 id, char *path)
 		size -= tocopy;
 		
 		fseek(wadout, 0xA40 + round64(header->tik_len), SEEK_SET);
-		fwrite(tmdmod, round64(tmdmodsize), 1, wadout);
+		__fwrite(tmdmod, round64(tmdmodsize), 1, wadout);
 		u32 towrite = ftell(wadout);
 		printf("Wrote modified TMD @ 0x%08x... ", towrite - round64(tmdmodsize));
 		
@@ -2216,11 +2244,11 @@ s32 Wad_Dump(u64 id, char *path)
 			if (blocksize > size) blocksize = size;
 			
 			fseek(wadout, tocopy, SEEK_SET);
-			fread(tempbuf, blocksize, 1, wadout);
+			__fread(tempbuf, blocksize, 1, wadout);
 			tocopy = ftell(wadout);
 			
 			fseek(wadout, towrite, SEEK_SET);
-			fwrite(tempbuf, blocksize, 1, wadout);
+			__fwrite(tempbuf, blocksize, 1, wadout);
 			towrite = ftell(wadout);
 			
 			size -= blocksize;
@@ -2242,7 +2270,7 @@ s32 Wad_Dump(u64 id, char *path)
 	printf("Writing header info... ");
 	logfile("Writing header info... ");
 	rewind(wadout);
-	fwrite((u8 *)header, 0x20, 1, wadout);
+	__fwrite((u8 *)header, 0x20, 1, wadout);
 	printf("done.\n");
 	logfile("done.\r\nHeader hexdump:\r\n");
 	hexdump_log(header, 0x20);
@@ -2304,7 +2332,7 @@ s32 Content_bin_Dump(FILE *cnt_bin, char* path)
 		goodbye();
 	}
 	memset(padding_table, 0, 64);
-	fwrite(padding_table, 64, 1, wadout);
+	__fwrite(padding_table, 64, 1, wadout);
 	free(padding_table);
 	
 	/* Get Certs */
@@ -2359,7 +2387,7 @@ s32 Content_bin_Dump(FILE *cnt_bin, char* path)
 	for (i = 0; i < (cnt_size - 0x644); i += 0x20)
 	{
 		/* "Bk" header */
-		fread(temp, 0x14, 1, cnt_bin);
+		__fread(temp, 0x14, 1, cnt_bin);
 		if (memcmp(temp, bk, 4) == 0)
 		{
 			found = true;
@@ -2423,7 +2451,7 @@ s32 Content_bin_Dump(FILE *cnt_bin, char* path)
 		goodbye();
 	}
 	
-	fread(tmd_buf, tmd_size, 1, cnt_bin);
+	__fread(tmd_buf, tmd_size, 1, cnt_bin);
 	
 	/* Store the 64-bit TitleID (we need it for the GetTicket() function) */
 	memcpy(&titleID, &(tmd_buf[0x18C]), 8);
@@ -2463,7 +2491,7 @@ s32 Content_bin_Dump(FILE *cnt_bin, char* path)
 	/* Get Title Key */
 	printf("Decrypting AES Title Key... ");
 	logfile("Decrypting AES Title Key... ");
-	ret = get_title_key(p_tik, (u8 *)key);
+	ret = get_title_key(titleID, p_tik, (u8 *)key);
 	free(p_tik);
 	
 	if (ret < 0)
@@ -2479,7 +2507,7 @@ s32 Content_bin_Dump(FILE *cnt_bin, char* path)
 	logfile("done.\r\n");
 	
 	/* Now we can write the TMD data */
-	fwrite(p_tmd, tmd_size, 1, wadout);
+	__fwrite(p_tmd, tmd_size, 1, wadout);
 	
 	static u8 footer_iv[16];
 	u32 footer_size = 0;
@@ -2559,7 +2587,7 @@ s32 Content_bin_Dump(FILE *cnt_bin, char* path)
 	logfile("Footer offset: 0x%08x... ", footer_offset);
 	
 	fseek(cnt_bin, footer_offset, SEEK_SET);
-	fread(footer_buf, footer_size, 1, cnt_bin);
+	__fread(footer_buf, footer_size, 1, cnt_bin);
 	
 	if (aes_128_cbc_decrypt(prng_key, footer_iv, footer_buf, footer_size) < 0)
 	{
@@ -2574,7 +2602,7 @@ s32 Content_bin_Dump(FILE *cnt_bin, char* path)
 	
 	if ((header->footer_len % 64) != 0) pad_data(footer_buf, header->footer_len, false);
 	
-	fwrite(footer_buf, footer_size, 1, wadout);
+	__fwrite(footer_buf, footer_size, 1, wadout);
 	free(footer_buf);
 	
 	printf("done.\n");
@@ -2584,7 +2612,7 @@ s32 Content_bin_Dump(FILE *cnt_bin, char* path)
 	printf("Writing header info... ");
 	logfile("Writing header info... ");
 	rewind(wadout);
-	fwrite((u8 *)header, 0x20, 1, wadout);
+	__fwrite((u8 *)header, 0x20, 1, wadout);
 	printf("done.\n");
 	logfile("done.\r\nHeader hexdump:\r\n");
 	hexdump_log(header, 0x20);
@@ -2620,14 +2648,14 @@ void YesNoPrompt(char *prompt, char *name, bool *option)
 	{
 		pressed = DetectInput(DI_BUTTONS_DOWN);
 		
-		if (pressed & WPAD_BUTTON_A)
+		if (pressed == WPAD_BUTTON_A)
 		{
 			*option = true;
 			logfile("%s set to true.\r\n", name);
 			break;
 		}
 		
-		if (pressed & WPAD_BUTTON_B)
+		if (pressed == WPAD_BUTTON_B)
 		{
 			*option = false;
 			logfile("%s set to false.\r\n", name);
@@ -2642,18 +2670,29 @@ void select_forge(int type)
 	YesNoPrompt("Do you want to fakesign the TMD?", "ftmd", &ftmd);
 	
 	/* WAD region change prompt */
-	/* We cannot change the WAD region if the TMD isn't fakesigned */
-	/* Also, avoid showing this prompt if a system title was selected */
-	if (ftmd && type != TYPE_IOS && type != TYPE_SYSTITLE && type != TYPE_HIDDEN)
+	/* Avoid showing this prompt if a system title was selected */
+	if (type != TYPE_IOS && type != TYPE_SYSTITLE && type != TYPE_HIDDEN)
 	{
-		YesNoPrompt("Do you want to change the output WAD region?", "change_region", &change_region);
+		YesNoPrompt("Do you want to change the output WAD region?\nThis modifies the Ticket and/or TMD!", "change_region", &change_region);
 		if (change_region)
 		{
-			u32 pressed;
-			u8 selection = 0;
-			char *region_str[4] = { "Japanese >", "< American >" , "< European >", "< **FREE**" };
-			printf("\n");
+			ftmd = true;
+			logfile(" TMD will be fakesigned!");
 			
+			isDLC = ((type == TYPE_DLC) ? true : false);
+			if (isDLC) 
+			{
+				ftik = true;
+				logfile(" Ticket will be fakesigned! (DLC detected)");
+			}
+			
+			logfile ("\r\n");
+			
+			u32 pressed;
+			u8 selection = 0, max_sel = (isDLC ? 2 : 3);
+			char *region_str[4] = { "Japanese", "American" , "European", "**FREE**" };
+			
+			printf("\n");
 			while(true)
 			{
 				Con_ClearLine();
@@ -2661,25 +2700,42 @@ void select_forge(int type)
 				printf("Select the new region: ");
 				
 				set_highlight(true);
-				printf(region_str[selection]);
+				printf("%s%s%s", ((selection == 0) ? "  " : "< "), region_str[selection], ((selection == max_sel) ? "  " : " >"));
 				set_highlight(false);
 				
 				pressed = DetectInput(DI_BUTTONS_DOWN);
 				
-				if (pressed & WPAD_BUTTON_LEFT)
+				if (pressed == WPAD_BUTTON_LEFT)
 				{	
 					if (selection > 0) selection--;
 				}
 				
-				if (pressed & WPAD_BUTTON_RIGHT)
+				if (pressed == WPAD_BUTTON_RIGHT)
 				{	
-					if (selection < 3) selection++;
+					if (selection < max_sel) selection++;
 				}
 				
-				if (pressed & WPAD_BUTTON_A) break;
+				if (pressed == WPAD_BUTTON_A) break;
 			}
 			
-			region = selection;
+			if (!isDLC)
+			{
+				region = selection;
+			} else {
+				switch (selection)
+				{
+					case 0:
+						region = 0x4A; // Japanese
+						break;
+					case 1:
+						region = 0x45; // American
+						break;
+					case 2:
+					default:
+						region = 0x50; // European
+						break;
+				}
+			}
 		}
 	}
 }
@@ -2706,18 +2762,18 @@ void dump_menu(char *cpath, int cline, dirent_t *ent)
 		
 		pressed = DetectInput(DI_BUTTONS_DOWN);
 		
-		if (pressed & WPAD_BUTTON_LEFT)
+		if (pressed == WPAD_BUTTON_LEFT)
 		{	
 			if (selection > 0) selection--;
 		}
 		
-		if (pressed & WPAD_BUTTON_RIGHT)
+		if (pressed == WPAD_BUTTON_RIGHT)
 		{	
 			if (selection < 2) selection++;
 		}
 		
-		if (pressed & WPAD_BUTTON_B) return;
-		if (pressed & WPAD_BUTTON_A) break;
+		if (pressed == WPAD_BUTTON_B) return;
+		if (pressed == WPAD_BUTTON_A) break;
 	}
 	
 	char some[ISFS_MAXPATH + 1];
@@ -2727,7 +2783,7 @@ void dump_menu(char *cpath, int cline, dirent_t *ent)
 	u64 titleID = copy_id(some);
 	u32 low = TITLE_LOWER(titleID);
 	
-	switch(selection)
+	switch (selection)
 	{
 		case 0: // Backup savedata
 			if ((ent[cline].function == TYPE_SAVEDATA && low != 0x48415a41) || ent[cline].function == TYPE_TITLE || ent[cline].function == TYPE_GAMECHAN)
@@ -2773,7 +2829,7 @@ void dump_menu(char *cpath, int cline, dirent_t *ent)
 					/* Workaround for HBC 1.0.7 - 1.1.0 */
 					if (low != 0xAF1BF516)
 					{
-						snprintf(dump_path, MAX_CHARACTERS(dump_path), "%s:/YABDM/WAD/%s v%u - %s", DEVICE(0), RemoveIllegalCharacters(get_name(titleID, false)), get_version(titleID), GetASCII(low));
+						snprintf(dump_path, MAX_CHARACTERS(dump_path), "%s:/YABDM/WAD/%s v%u - %s", DEVICE(0), RemoveIllegalCharacters(get_name(titleID, false)), get_version(titleID), ((isDLC && change_region) ? GetASCII((low & 0xFFFFFF00) | region) : GetASCII(low)));
 					} else {
 						snprintf(dump_path, MAX_CHARACTERS(dump_path), "%s:/YABDM/WAD/Homebrew Channel - AF1BF516", DEVICE(0));
 					}
@@ -3007,7 +3063,7 @@ void sd_browser()
 		pressed = DetectInput(DI_BUTTONS_DOWN);
 		
 		/* Navigate up */
-		if (pressed & WPAD_BUTTON_UP)
+		if (pressed == WPAD_BUTTON_UP)
 		{			
 			if (cline > 0) 
 			{
@@ -3020,7 +3076,7 @@ void sd_browser()
 		}
 		
 		/* Navigate down */
-		if (pressed & WPAD_BUTTON_DOWN)
+		if (pressed == WPAD_BUTTON_DOWN)
 		{
 			if (cline < (lcnt - 1))
 			{
@@ -3033,7 +3089,7 @@ void sd_browser()
 		}
 		
 		/* Navigate left */
-		if (pressed & WPAD_BUTTON_LEFT)
+		if (pressed == WPAD_BUTTON_LEFT)
 		{
 			if (cline > 0)
 			{
@@ -3049,7 +3105,7 @@ void sd_browser()
 		}
 		
 		/* Navigate right */
-		if (pressed & WPAD_BUTTON_RIGHT)
+		if (pressed == WPAD_BUTTON_RIGHT)
 		{
 			if (cline < (lcnt - 1))
 			{
@@ -3065,7 +3121,7 @@ void sd_browser()
 		}
 		
 		/* Start conversion to WAD */
-		if (pressed & WPAD_BUTTON_A)
+		if (pressed == WPAD_BUTTON_A)
 		{
 			if (ent[cline].type == DIRENT_T_DIR)
 			{
@@ -3076,10 +3132,10 @@ void sd_browser()
 		}
 		
 		/* Return to the main browser screen */
-		if (pressed & WPAD_BUTTON_PLUS) break;
+		if (pressed == WPAD_BUTTON_PLUS) break;
 		
 		/* Device Menu */
-		if (pressed & WPAD_BUTTON_MINUS)
+		if (pressed == WPAD_BUTTON_MINUS)
 		{
 			/* No device swapping allowed in this case */
 			Device_Menu(false);
@@ -3087,7 +3143,7 @@ void sd_browser()
 		}
 		
 		/* Chicken out */
-		if (pressed & WPAD_BUTTON_HOME)
+		if (pressed == WPAD_BUTTON_HOME)
 		{
 			printf("\nExiting...");
 			free(ent);
@@ -3231,7 +3287,7 @@ void create_name_list(char cpath[ISFS_MAXPATH + 1], dirent_t* ent, int lcnt)
 	}
 }
 
-void yabdm_loop(void)
+void yabdm_loop(char *lpath)
 {
 	/* Get Console Language */
 	lang = CONF_GetLanguage();
@@ -3273,7 +3329,7 @@ void yabdm_loop(void)
 		pressed = DetectInput(DI_BUTTONS_DOWN);
 		
 		/* Navigate up */
-		if (pressed & WPAD_BUTTON_UP)
+		if (pressed == WPAD_BUTTON_UP)
 		{
 			if (cline > 0) 
 			{
@@ -3286,7 +3342,7 @@ void yabdm_loop(void)
 		}
 		
 		/* Navigate down */
-		if (pressed & WPAD_BUTTON_DOWN)
+		if (pressed == WPAD_BUTTON_DOWN)
 		{
 			if (cline < (lcnt - 1))
 			{
@@ -3299,7 +3355,7 @@ void yabdm_loop(void)
 		}
 		
 		/* Navigate left */
-		if (pressed & WPAD_BUTTON_LEFT)
+		if (pressed == WPAD_BUTTON_LEFT)
 		{
 			if (cline > 0)
 			{
@@ -3315,7 +3371,7 @@ void yabdm_loop(void)
 		}
 		
 		/* Navigate right */
-		if (pressed & WPAD_BUTTON_RIGHT)
+		if (pressed == WPAD_BUTTON_RIGHT)
 		{
 			if (cline < (lcnt - 1))
 			{
@@ -3331,7 +3387,7 @@ void yabdm_loop(void)
 		}
 		
 		/* Enter parent dir */
-		if (pressed & WPAD_BUTTON_B)
+		if (pressed == WPAD_BUTTON_B)
 		{
 			if (strlen(cpath) > 6)
 			{
@@ -3347,7 +3403,7 @@ void yabdm_loop(void)
 		}
 		
 		/* Enter dir */
-		if (pressed & WPAD_BUTTON_A)
+		if (pressed == WPAD_BUTTON_A)
 		{
 			// Is the current entry a dir?
 			if (lcnt != 0 && ent[cline].type == DIRENT_T_DIR)
@@ -3369,7 +3425,7 @@ void yabdm_loop(void)
 		}
 		
 		/* Dump options */
-		if (pressed & WPAD_BUTTON_1)
+		if (pressed == WPAD_BUTTON_1)
 		{
 			if (lcnt != 0 && strlen(cpath) == 15)
 			{
@@ -3379,28 +3435,35 @@ void yabdm_loop(void)
 		}
 		
 		/* Change view mode */
-		if (pressed & WPAD_BUTTON_2)
+		if (pressed == WPAD_BUTTON_2)
 		{
 			ascii ^= 1;
 			browser(cpath, ent, cline, lcnt);
 		}
 		
 		/* Switch to content.bin conversion */
-		if (pressed & WPAD_BUTTON_PLUS)
+		if (pressed == WPAD_BUTTON_PLUS)
 		{
 			sd_browser();
 			browser(cpath, ent, cline, lcnt);
 		}
 		
 		/* Device menu */
-		if (pressed & WPAD_BUTTON_MINUS)
+		if (pressed == WPAD_BUTTON_MINUS)
 		{
 			Device_Menu(true);
 			browser(cpath, ent, cline, lcnt);
 		}
 		
-		/* Chicken out */
-		if (pressed & WPAD_BUTTON_HOME)
+		/* Update application */
+		if (pressed == (WPAD_BUTTON_A | WPAD_BUTTON_B))
+		{
+			UpdateYABDM(lpath);
+			browser(cpath, ent, cline, lcnt);
+		}
+		
+		/* Chicken out / check callback button value */
+		if (pressed == WPAD_BUTTON_HOME)
 		{
 			free(ent);
 			break;

@@ -31,10 +31,12 @@ int main(int argc, char* argv[])
 	
 	vwii = IsWiiU();
 	__debug = false;
+	__wiilight = false;
 	
-	/* Also check argv[0], since it appears the "debug" argument gets passed here if Wiiload is launched from a batch script */
-	for (i = 0; i < argc; i++)
+	/* Also check argv[0], since it appears arguments get initially passed here if Wiiload is launched from a batch script */
+	for (i = 0; i < argc; ++i)
 	{
+		/* Check "debug" argument */
 		if (CHECK_ARG("debug="))
 		{
 			if (atoi(CHECK_ARG_VAL("debug=")) == 1)
@@ -58,6 +60,12 @@ int main(int argc, char* argv[])
 					}
 				}
 			}
+		}
+		
+		/* Check "wiilight" argument */
+		if (CHECK_ARG("wiilight="))
+		{
+			if (atoi(CHECK_ARG_VAL("wiilight=")) == 1) __wiilight = true;
 		}
 	}
 	
@@ -93,7 +101,7 @@ int main(int argc, char* argv[])
 	Mount_Devices();
 	
 	/* Main app loop */
-	yabdm_loop();
+	yabdm_loop(argv[0]);
 	
 	/* Unmount storage devices (including NAND FS) and exit */
 	goodbye();
