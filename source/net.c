@@ -19,9 +19,13 @@
 #define NETWORK_PORT		80
 #define NETWORK_BLOCKSIZE	2048
 
-#define NETWORK_HOSTNAME	"bluedump-mod.googlecode.com"
-#define NETWORK_DOL_PATH	"/svn/trunk/HBC/boot.dol"
-#define NETWORK_XML_PATH	"/svn/trunk/HBC/meta.xml"
+#define NETWORK_HOSTNAME		"bluedump-mod.googlecode.com"
+#define NETWORK_DOL_PATH		"/svn/trunk/HBC/boot.dol"
+#define NETWORK_XML_PATH		"/svn/trunk/HBC/meta.xml"
+#define NETWORK_VERSION_PATH	"/svn/trunk/source/tools.h"
+
+float latest_ver = 0.0;
+bool update = false;
 
 static char hostip[16] ATTRIBUTE_ALIGN(32);
 static u8 fileBuf[NETWORK_BLOCKSIZE] ATTRIBUTE_ALIGN(32);
@@ -256,6 +260,40 @@ s32 FileUpdate(char *path, bool is_dol)
 	return ret;
 }
 
+bool CheckLatestVersion(float cur_ver)
+{
+	s32 ret = 0;
+	u32 cnt, len, blksize = NETWORK_BLOCKSIZE;
+	
+	printf("\nChecking if we are already running the latest version...\n");
+	logfile("Getting \"%s%s\" (version info)... ", NETWORK_HOSTNAME, NETWORK_VERSION_PATH);
+	
+	len = network_request(NETWORK_VERSION_PATH, NETWORK_HOSTNAME);
+	if (len < 0) return len;
+	
+	logfile("File length: %d bytes.\r\n", len);
+	
+	for (cnt = 0; cnt < len; cnt += blksize)
+	{
+		if (blksize > len - cnt) blksize = len - cnt;
+		
+		ret = network_read(fileBuf, blksize);
+		if (ret != blksize)
+		{
+			ret = -1;
+			printf("Error downloading data.\n");
+			logfile("Error downloading data.\r\n");
+			break;
+		}
+	}
+	
+	if (ret < 0) return false;
+	
+	sscanf((char*)fileBuf, "#ifndef %*s #define %*s #include %*s #include %*s #include %*s #include %*s #include %*s #define VERSION \"%f\"", &latest_ver);
+	
+	return (latest_ver > cur_ver);
+}
+
 void UpdateYABDM(char *launch_path)
 {
 	resetscreen();
@@ -272,19 +310,17 @@ void UpdateYABDM(char *launch_path)
 	if ((strnicmp(launch_path, "sd:", 3) != 0) && (strnicmp(launch_path, "usb:", 4) != 0))
 	{
 		printf("\nThe launch path is invalid.\n");
-		printf("The update procedure cannot be performed.");
+		printf("The update procedure cannot be performed.\n");
+		printf("Did you launch the application using Wiiload?");
 		
 		logfile("\r\n[UPDATEYABDM] Error: launch path \"%s\" is invalid!\r\n", launch_path);
 	} else {
 		s32 ret;
-		int i;
 		
 		/* Parse the launch directory */
-		char *path = (char*) malloc(strlen(launch_path) + 1);
-		memcpy(path, launch_path, strlen(launch_path));
-		
-		for (i = strlen(launch_path); launch_path[i] != '/'; i--);
-		path[i] = 0;
+		char path[MAXPATHLEN] = {0};
+		char *first_slash = strrchr(launch_path, '/');
+		if (first_slash != NULL) strncpy(path, launch_path, first_slash - launch_path + 1);
 		
 		printf("Launch path: \"%s\".\n", path);
 		logfile("\r\n[UPDATEYABDM] Launch path: %s.\r\n", path);
@@ -292,29 +328,45 @@ void UpdateYABDM(char *launch_path)
 		ret = network_init();
 		if (ret >= 0)
 		{
-			/* Update boot.dol */
-			ret = FileUpdate(path, true);
-			if (ret >= 0)
+			/* Check if we are already running the latest version */
+			if (!update && CheckLatestVersion(atof(VERSION)))
 			{
-				logfile("boot.dol successfully updated.\r\n");
+				printf("Version available on server: %g. Starting update procedure.\n", latest_ver);
+				logfile("Version available on server: %g. Starting update procedure.\r\n", latest_ver);
 				
-				/* Update meta.xml */
-				ret = FileUpdate(path, false);
+				/* Update boot.dol */
+				ret = FileUpdate(path, true);
 				if (ret >= 0)
 				{
-					logfile("meta.xml successfully updated.\r\n");
+					logfile("boot.dol successfully updated.\r\n");
 					
-					resetscreen();
-					printheadline();
-					
-					printf("Update completed! Go back to the launcher and load\n");
-					printf("the application again to reflect the changes.\n");
-					printf("Please refer to the meta.xml file if you want to see the changelog.");
+					/* Update meta.xml */
+					ret = FileUpdate(path, false);
+					if (ret >= 0)
+					{
+						logfile("meta.xml successfully updated.\r\n");
+						
+						resetscreen();
+						printheadline();
+						
+						printf("Update completed! Go back to the launcher and load\n");
+						printf("the application again to reflect the changes.\n");
+						printf("Please refer to the meta.xml file if you want to see the changelog.");
+						
+						update = true;
+					}
+				}
+			} else {
+				if (update)
+				{
+					printf("You already updated the application. Restart to reflect the new changes.");
+					logfile("You already updated the application. Restart to reflect the new changes.\r\n");
+				} else {
+					printf("Version available on server: %g. You already have the latest version.", latest_ver);
+					logfile("Version available on server: %g. You already have the latest version.\r\n", latest_ver);
 				}
 			}
 		}
-		
-		free(path);
 	}
 	
 	printf("\n\nPress any button to go back to the menu.");

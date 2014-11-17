@@ -880,7 +880,7 @@ s32 GetTicket(FILE *f, u64 id, signed_blob **tik)
 		if (!ftik) ftik = true;
 	}
 	
-	/* Fakesign ticket if the user chose to */
+	/* Fakesign ticket */
 	if (ftik) forge((signed_blob *)buffer, false, true);
 	
 	/* Write to output WAD */
@@ -1162,7 +1162,7 @@ s32 GetContentFromCntBin(FILE *cnt_bin, FILE *wadout, u16 index, u32 size, u8 *k
 		
 		__fread(buffer, blksize, 1, cnt_bin);
 		
-		ret = aes_128_cbc_decrypt(prng_key, iv1, buffer, blksize);
+		ret = aes_128_cbc_decrypt((use_bootmii_data ? bootmii_prng : prng_key), iv1, buffer, blksize);
 		if (ret < 0) break;
 		
 		/* Hash current data block */
@@ -1786,112 +1786,182 @@ void install_savedata(u64 titleID)
 	}
 }	
 
-/* Info taken from Wiibrew */
+/* Info taken from WiiBrew and WiiUBrew */
+
+char GetSysMenuRegion(u16 version)
+{
+	char SysMenuRegion = NULL;
+	
+	switch (version)
+	{
+		case 128: // 2.0J
+		case 192: // 2.2J
+		case 224: // 3.0J
+		case 256: // 3.1J
+		case 288: // 3.2J
+		case 352: // 3.3J
+		case 384: // 3.4J
+		case 416: // 4.0J
+		case 448: // 4.1J
+		case 480: // 4.2J
+		case 512: // 4.3J
+		case 544: // vWii
+		case 608: // vWii
+		case 54448: // mauifrog's 4.1 mod
+			SysMenuRegion = 'J';
+			break;
+		case 97:  // 2.0U
+		case 193: // 2.2U
+		case 225: // 3.0U
+		case 257: // 3.1U
+		case 289: // 3.2U
+		case 353: // 3.3U
+		case 385: // 3.4U
+		case 417: // 4.0U
+		case 449: // 4.1U
+		case 481: // 4.2U
+		case 513: // 4.3U
+		case 545: // vWii
+		case 609: // vWii
+		case 54449: // mauifrog's 4.1 mod
+			SysMenuRegion = 'U';
+			break;
+		case 130: // 2.0E
+		case 162: // 2.1E
+		case 194: // 2.2E
+		case 226: // 3.0E
+		case 258: // 3.1E
+		case 290: // 3.2E
+		case 354: // 3.3E
+		case 386: // 3.4E
+		case 418: // 4.0E
+		case 450: // 4.1E
+		case 482: // 4.2E
+		case 514: // 4.3E
+		case 546: // vWii
+		case 610: // vWii
+		case 54450: // mauifrog's 4.1 mod
+			SysMenuRegion = 'E';
+			break;
+		case 326: // 3.3K
+		case 390: // 3.5K
+		case 454: // 4.1K
+		case 486: // 4.2K
+		case 518: // 4.3K
+		case 54454: // mauifrog's 4.1 mod
+			SysMenuRegion = 'K';
+			break;
+	}
+	
+	return SysMenuRegion;
+}
+
 char *GetSysMenuVersion(u16 version)
 {
+	float SysMenuVersion = 0.0;
+	
 	switch (version)
 	{
 		case 33:
-			return "v1.0";
+			SysMenuVersion = 1.0f;
+			break;
 		case 97:
-			return "v2.0U";
 		case 128:
-			return "v2.0J";
 		case 130:
-			return "v2.0E";
+			SysMenuVersion = 2.0f;
+			break;
 		case 162:
-			return "v2.1E";
+			SysMenuVersion = 2.1f;
+			break;
 		case 192:
-			return "v2.2J";
 		case 193:
-			return "v2.2U";
 		case 194:
-			return "v2.2E";
+			SysMenuVersion = 2.2f;
+			break;
 		case 224:
-			return "v3.0J";
 		case 225:
-			return "v3.0U";
 		case 226:
-			return "v3.0E";
+			SysMenuVersion = 3.0f;
+			break;
 		case 256:
-			return "v3.1J";
 		case 257:
-			return "v3.1U";
 		case 258:
-			return "v3.1E";
+			SysMenuVersion = 3.1f;
+			break;
 		case 288:
-			return "v3.2J";
 		case 289:
-			return "v3.2U";
 		case 290:
-			return "v3.2E";
+			SysMenuVersion = 3.2f;
+			break;
 		case 326:
-			return "v3.3K";
 		case 352:
-			return "v3.3J";
 		case 353:
-			return "v3.3U";
 		case 354:
-			return "v3.3E";
+			SysMenuVersion = 3.3f;
+			break;
 		case 384:
-			return "v3.4J";
 		case 385:
-			return "v3.4U";
 		case 386:
-			return "v3.4E";
+			SysMenuVersion = 3.4f;
+			break;
 		case 390:
-			return "v3.5K";
+			SysMenuVersion = 3.5f;
+			break;
 		case 416:
-			return "v4.0J";
 		case 417:
-			return "v4.0U";
 		case 418:
-			return "v4.0E";
+			SysMenuVersion = 4.0f;
+			break;
 		case 448:
-			return "v4.1J";
 		case 449:
-			return "v4.1U";
 		case 450:
-			return "v4.1E";
 		case 454:
-			return "v4.1K";
+		case 54448: // mauifrog's 4.1 mod
+		case 54449: // mauifrog's 4.1 mod
+		case 54450: // mauifrog's 4.1 mod
+		case 54454: // mauifrog's 4.1 mod
+			SysMenuVersion = 4.1f;
+			break;
 		case 480:
-			return "v4.2J";
 		case 481:
-			return "v4.2U";
 		case 482:
-			return "v4.2E";
 		case 486:
-			return "v4.2K";
+			SysMenuVersion = 4.2f;
+			break;
 		case 512:
-		case 544:
-			if (vwii)
-			{
-				return "v4.3J (vWii)";
-			} else {
-				return "v4.3J";
-			}
 		case 513:
-		case 545:
-			if (vwii)
-			{
-				return "v4.3U (vWii)";
-			} else {
-				return "v4.3U";
-			}
 		case 514:
-		case 546:
-			if (vwii)
-			{
-				return "v4.3E (vWii)";
-			} else {
-				return "v4.3E";
-			}
 		case 518:
-			return "v4.3K";
+		case 544: // vWii
+		case 545: // vWii
+		case 546: // vWii
+		case 608: // vWii
+		case 609: // vWii
+		case 610: // vWii
+			SysMenuVersion = 4.3f;
+			break;
 		default:
-			return "(Unknown Version)";
+			break;
 	}
+	
+	if (SysMenuVersion == 0.0f)
+	{
+		snprintf(titlename, MAX_CHARACTERS(titlename), "(Unknown v%d)", version);
+	} else {
+		char sm_region = GetSysMenuRegion(version);
+		
+		if (vwii)
+		{
+			snprintf(titlename, MAX_CHARACTERS(titlename), "v%.1f%c (v%d) (vWii)", SysMenuVersion, sm_region, version);
+		} else {
+			snprintf(titlename, MAX_CHARACTERS(titlename), "v%.1f", SysMenuVersion);
+			
+			if (SysMenuVersion != 1.0f) strncat(titlename, &sm_region, 1);
+			if (version == 54448 || version == 54449 || version == 54450 || version == 54454) strncat(titlename, " (mauifrog's mod)", 17);
+		}
+	}
+	
+	return titlename;
 }
 
 void browser(char cpath[ISFS_MAXPATH + 1], dirent_t* ent, int cline, int lcnt)
@@ -2281,6 +2351,69 @@ s32 Wad_Dump(u64 id, char *path)
 	return 0;
 }
 
+s32 LoadTikFromDevice(FILE *f, u64 tid, signed_blob **tik)
+{
+	char tpath[ISFS_MAXPATH] = {0};
+	snprintf(tpath, MAX_CHARACTERS(tpath), "%s:/YABDM/Tickets/%08x-%08x.tik", DEVICE(0), TITLE_UPPER(tid), TITLE_LOWER(tid));
+	
+	if (!create_folders(tpath)) return -1;
+	
+	FILE *device_tik = fopen(tpath, "rb");
+	if (!device_tik) return -1;
+	
+	printf("Loading ticket data from \"%s\"...\n", tpath);
+	logfile("Loading ticket data from \"%s\"... ", tpath);
+	
+	fseek(device_tik, 0, SEEK_END);
+	u32 tik_size = ftell(device_tik);
+	rewind(device_tik);
+	
+	logfile("Ticket size: %u bytes. ", tik_size);
+	
+	if (tik_size > 0x2A4)
+	{
+		tik_size = 0x2A4;
+		logfile("Ticket size reduced to 0x2A4 (multiple tickets). ");
+	}
+		
+	u8 *tik_buf = allocate_memory(tik_size);
+	if (!tik_buf)
+	{
+		printf("Error allocating memory.");
+		logfile("Error allocating memory.");
+		fclose(device_tik);
+		return -2;
+	}
+	
+	header->tik_len = tik_size;
+	__fread(tik_buf, tik_size, 1, device_tik);
+	fclose(device_tik);
+	
+	tik_size = pad_data(tik_buf, tik_size, false);
+	logfile("Padded Ticket size = %u bytes.\r\n", tik_size);
+	
+	/* Change the Common Key Index to 0x00 */
+	/* Useful to avoid installation errors with WADs dumped from a Korean Wii (0x01) or vWii (0x02) */
+	if (tik_buf[0x1F1] > 0)
+	{
+		printf("Setting Common Key Index to 0x00 (was 0x%02x). ", tik_buf[0x1F1]);
+		logfile("Setting Common Key Index to 0x00 (was 0x%02x). ", tik_buf[0x1F1]);
+		
+		tik_buf[0x1F1] = 0x00;
+		if (!ftik) ftik = true;
+	}
+	
+	/* Fakesign ticket */
+	if (ftik) forge((signed_blob *)tik_buf, false, true);
+	
+	/* Write to output WAD */
+	__fwrite(tik_buf, tik_size, 1, f);
+	
+	*tik = (signed_blob *)tik_buf;
+	
+	return 0;
+}
+
 s32 Content_bin_Dump(FILE *cnt_bin, char* path)
 {
 	make_header();
@@ -2361,6 +2494,8 @@ s32 Content_bin_Dump(FILE *cnt_bin, char* path)
 		}
 	}
 	
+	use_bootmii_data = false;
+	
 	/* Search for the "Bk" magic word, which serves as an identifier for part C */
 	/* We need to access this part because it contains both TMD size and console ID */
 	/* We'll use the console ID to verify if the content.bin file was generated in this Wii */
@@ -2398,19 +2533,25 @@ s32 Content_bin_Dump(FILE *cnt_bin, char* path)
 			memcpy(&part_C_cid, &(temp[0x04]), 4);
 			if (part_C_cid != console_id)
 			{
-				printf("\nError: Console ID mismatch. This content.bin file was not generated by this Wii!");
-				logfile("\r\nError: Console ID mismatch. This content.bin file was not generated by this Wii!");
-				free(temp);
-				free(header);
-				fclose(wadout);
-				remove(path);
-				return -1;
+				printf("\nError: Console ID mismatch. This content.bin was not generated by this Wii!");
+				logfile("\r\nError: Console ID mismatch. This content.bin was not generated by this Wii!");
+				
+				/* Try to read the Console ID and the PRNG Key from a different console's BootMii data */
+				ret = Get_BootMii_data(part_C_cid);
+				if (ret < 0)
+				{
+					free(temp);
+					free(header);
+					fclose(wadout);
+					remove(path);
+					return -1;
+				}
 			}
 			
 			/* Store TMD size */
 			memcpy(&tmd_size, &(temp[0x10]), 4);
 			header->tmd_len = tmd_size;
-			logfile("TMD Size = %u... ", tmd_size);
+			logfile("\r\nTMD Size = %u... ", tmd_size);
 			
 			/* Prepare file stream position for TMD access */
 			fseek(cnt_bin, 0x68, SEEK_CUR);
@@ -2432,9 +2573,6 @@ s32 Content_bin_Dump(FILE *cnt_bin, char* path)
 		remove(path);
 		return -1;
 	}
-	
-	printf("done.\n");
-	logfile("done.\r\n");
 	
 	/* Get TMD */
 	printf("Reading TMD... ");
@@ -2479,11 +2617,31 @@ s32 Content_bin_Dump(FILE *cnt_bin, char* path)
 	ret = GetTicket(wadout, titleID, &p_tik);
 	if (ret < 0)
 	{
-		free(header);
-		free(tmd_buf);
-		fclose(wadout);
-		remove(path);
-		return -1;
+		if (use_bootmii_data)
+		{
+			ret = LoadTikFromDevice(wadout, titleID, &p_tik);
+			if (ret < 0)
+			{
+				free(header);
+				free(tmd_buf);
+				fclose(wadout);
+				remove(path);
+				
+				if (ret == -2)
+				{
+					fclose(cnt_bin);
+					goodbye();
+				} else {
+					return -1;
+				}
+			}
+		} else {
+			free(header);
+			free(tmd_buf);
+			fclose(wadout);
+			remove(path);
+			return -1;
+		}
 	}
 	printf("OK.\n");
 	logfile("OK.\r\n");
@@ -2589,7 +2747,7 @@ s32 Content_bin_Dump(FILE *cnt_bin, char* path)
 	fseek(cnt_bin, footer_offset, SEEK_SET);
 	__fread(footer_buf, footer_size, 1, cnt_bin);
 	
-	if (aes_128_cbc_decrypt(prng_key, footer_iv, footer_buf, footer_size) < 0)
+	if (aes_128_cbc_decrypt((use_bootmii_data ? bootmii_prng : prng_key), footer_iv, footer_buf, footer_size) < 0)
 	{
 		printf("Error decrypting footer data.\n");
 		logfile("Error decrypting footer data.\r\n");
@@ -2863,6 +3021,9 @@ void dump_menu(char *cpath, int cline, dirent_t *ent)
 					printf("\nError dumping title to WAD file!");
 				} else {
 					logfile("WAD dump complete!\r\n");
+					
+					resetscreen();
+					printheadline();
 					printf("WAD dump complete! Output file:\n\n\t%s", dump_path);
 				}
 			}
@@ -2871,8 +3032,13 @@ void dump_menu(char *cpath, int cline, dirent_t *ent)
 			break;
 	}
 	
+	printf("\n\nPress any button to go back to the menu.");
 	fflush(stdout);
-	usleep(3000000);
+	
+	while(true)
+	{
+		if (DetectInput(DI_BUTTONS_DOWN) != 0) break;
+	}
 }
 
 void sd_browser_ent_info(dirent_t* ent, int cline, int lcnt)
@@ -2943,12 +3109,21 @@ void dump_menu_sd(char *cnt_path)
 		printf("\nError dumping title to WAD file!");
 	} else {
 		logfile("WAD dump complete!\r\n");
+		
+		resetscreen();
+		printheadline();
 		printf("WAD dump complete! Output file:\n\n\t%s", dump_path);
 	}
 	
 	fclose(cnt_bin);
+	
+	printf("\n\nPress any button to go back to the menu.");
 	fflush(stdout);
-	usleep(3000000);
+	
+	while(true)
+	{
+		if (DetectInput(DI_BUTTONS_DOWN) != 0) break;
+	}
 }
 
 void sd_browser()
@@ -3255,6 +3430,15 @@ void create_name_list(char cpath[ISFS_MAXPATH + 1], dirent_t* ent, int lcnt)
 				case 0x44495343:
 					snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), "DVDx (new version)");
 					break;
+				case 0x48435a45:
+					snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), "vWii System Channel (USA) v%u", get_version(TITLE_ID(0x00010008, 0x48435a45)));
+					break;
+				case 0x48435a4a:
+					snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), "vWii System Channel (JAP) v%u", get_version(TITLE_ID(0x00010008, 0x48435a4a)));
+					break;
+				case 0x48435a50:
+					snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), "vWii System Channel (EUR) v%u", get_version(TITLE_ID(0x00010008, 0x48435a50)));
+					break;
 				default:
 					snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), "Unknown Hidden Channel");
 					break;
@@ -3292,11 +3476,7 @@ void yabdm_loop(char *lpath)
 	/* Get Console Language */
 	lang = CONF_GetLanguage();
 	
-	if (__debug)
-	{
-		reset_log();
-		logfile_header();
-	}
+	logfile_header();
 	
 	/* Read the content.map file here to avoid reading it at a later time */
 	GetContentMap();
@@ -3462,7 +3642,7 @@ void yabdm_loop(char *lpath)
 			browser(cpath, ent, cline, lcnt);
 		}
 		
-		/* Chicken out / check callback button value */
+		/* Chicken out */
 		if (pressed == WPAD_BUTTON_HOME)
 		{
 			free(ent);

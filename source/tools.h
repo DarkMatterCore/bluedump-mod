@@ -7,7 +7,7 @@
 #include <runtimeiospatch.h>
 #include <malloc.h>
 
-#define VERSION "1.5"
+#define VERSION "1.6"
 
 // Values for DetectInput
 #define DI_BUTTONS_DOWN		0
@@ -46,7 +46,6 @@ void Mount_Devices();
 void Device_Menu(bool swap);
 int ahbprot_menu();
 int ios_selectionmenu(int default_ios);
-void reset_log();
 void logfile(const char *format, ...);
 void logfile_header();
 void hexdump_log(void *d, int len);

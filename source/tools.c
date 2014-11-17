@@ -401,7 +401,6 @@ void Device_Menu(bool swap)
 				{
 					fclose(debug_file);
 					
-					reset_log();
 					logfile_header();
 				}
 			}
@@ -432,7 +431,6 @@ void Device_Menu(bool swap)
 	
 	Mount_Devices();
 	
-	reset_log();
 	logfile_header();
 }
 
@@ -657,16 +655,6 @@ int ios_selectionmenu(int default_ios)
 	return selection;
 }
 
-void reset_log()
-{
-	if (isSD)
-	{
-		remove("sd:/YABDM.log");
-	} else {
-		remove("usb:/YABDM.log");
-	}
-}
-
 void logfile(const char *format, ...)
 {
 	if (__debug)
@@ -697,8 +685,9 @@ void logfile(const char *format, ...)
 
 void logfile_header()
 {
+	logfile("\r\n*---------------------------------------------------------------------------------------------------------------------------*\r\n");
 	logfile("\r\nYet Another BlueDump MOD v%s - Logfile.\r\n", VERSION);
-	logfile("SDmnt(%d), USBmnt(%d), isSD(%d), __wiilight(%d).\r\n", SDmnt, USBmnt, isSD, __wiilight);
+	logfile("SDmnt(%d), USBmnt(%d), isSD(%d), vwii(%d), __wiilight(%d).\r\n", SDmnt, USBmnt, isSD, vwii, __wiilight);
 	logfile("Using IOS%u v%u.\r\n", IOS_GetVersion(), IOS_GetRevision());
 	logfile("Console language: %d (%s).\r\n\r\n", lang, languages[lang]);
 }
