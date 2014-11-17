@@ -2,8 +2,8 @@
 	<app version="1">
 		<name>Yet Another BlueDump MOD (YABDM)</name>
 		<coder>nicksasa, DarkMatterCore</coder>
-		<version>v1.5</version>
-		<release_date>20141013220000</release_date>
+		<version>v1.6</version>
+		<release_date>20141116211500</release_date>
 		<short_description>Title and save manager</short_description>
 		<long_description>YABDM is a modification of BlueDump capable of dumping any type of title installed in your Wii console to a WAD file in a SD Card or an USB storage device. It can also backup and restore savegames in their unencrypted form.
 
@@ -28,6 +28,17 @@ The same things applies if you want to backup savedata for a VC title: just go t
 * Excelsiior, for his libruntimeiospatch library, used to apply IOS patches at runtime.
 
 === Changelog ===
+
+YABDM v1.6 (November 16th, 2014 - DarkMatterCore):
+
+* Added support for vWii System Menu versions 608, 609 and 610.
+* Added support for mauifrog's System Menu 4.1 modified versions.
+* Updated the internal name list to add support for vWii hidden channels.
+* The update procedure now checks if you already have the latest YABDM version.
+* The logfile now shows if the application is running under vWii.
+* The reset_log() function was removed. Now, a line formed by dashes is used to divide each subsequent logging session from another.
+* The application is now able to use the BootMii dump data from another Wii in the content.bin conversion process. It'll only look for the files if the content.bin's Console ID doesn't match the one from the console the application is being run on. Please keep in mind that you'll also need to have a copy of the Ticket file on your NAND, or either manually place it under /YABDM/Tickets/ in the selected output device, using the following naming scheme: TITLE_HIGH-TITLE_LOW.tik (e.g. sd:/YABDM/Tickets/00010001-57475345.tik). If you choose not to fakesign the output WAD, it'll retain the signature from its original console.
+* Some other minor fixes and corrections.
 
 YABDM v1.5 (October 13th, 2014 - DarkMatterCore):
 

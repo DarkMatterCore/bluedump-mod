@@ -1,8 +1,13 @@
 #ifndef __OTP_H__
 #define __OTP_H__
 
+bool use_bootmii_data;
+
 u8 prng_key[16]; // otp_ptr @ 0x68
-u32 console_id;
+u32 console_id; // otp_ptr @ 0x24
+
+u8 bootmii_prng[16];
+u32 bootmii_cid;
 
 typedef struct
 {
@@ -26,5 +31,6 @@ typedef struct
 } __attribute__((packed)) otp_t;
 
 s32 Get_OTP_data();
+s32 Get_BootMii_data(u32 cntbin_cid);
 
 #endif /* __OTP_H__ */
