@@ -19,10 +19,6 @@
 #define TYPE_HIDDEN		6
 #define TYPE_OTHER 		7
 
-#define TITLE_UPPER(x)		((u32)((x) >> 32))
-#define TITLE_LOWER(x)		((u32)(x))
-#define TITLE_ID(x,y)		(((u64)(x) << 32) | (y))
-
 #define round_up(x,n)   (-(-(x) & -(n)))
 #define round64(x)      round_up((x),0x40)
 #define round16(x)		round_up((x),0x10)
@@ -82,6 +78,6 @@ typedef struct
 	u8 desc[64];		// Title description
 } WIBN;
 
-void yabdm_loop(char *lpath);
+void yabdm_loop();
 
 #endif /* __YABDM_H__ */

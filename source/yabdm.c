@@ -26,7 +26,6 @@
 #include "aes.h"
 #include "sha1.h"
 #include "otp.h"
-#include "net.h"
 #include "../build/cert_sys.h"
 
 const u8 commonkey[16] = { 0xeb, 0xe4, 0x2a, 0x22, 0x5e, 0x85, 0x93, 0xe4, 0x48, 0xd9, 0xc5, 0x45, 0x73, 0x81, 0xaa, 0xf7 };
@@ -181,7 +180,7 @@ s32 getdir_info(char *path, dirent_t **ent, u32 *cnt)
 	{
 		//printf("Error: could not allocate buffer for name list!\n");
 		logfile("\r\nError: could not allocate buffer for name list!\r\n");
-		return -1;
+		return -2;
 	}
 	
 	/* Read entries */
@@ -203,7 +202,7 @@ s32 getdir_info(char *path, dirent_t **ent, u32 *cnt)
 	{
 		logfile("Error allocating memory for the entry buffer!\r\n");
 		free(nbuf);
-		return -1;
+		return -2;
 	}
 	
 	logfile("Directory list:\r\n");
@@ -288,7 +287,7 @@ s32 __convertWiiString(char *str, u8 *data, u32 cnt)
 	return 0;
 }
 
-char *read_title_name(u64 titleid, bool get_description)
+s32 read_title_name(u64 titleid, bool get_description)
 {
 	bool is_dlc;
 	s32 ret, cfd;
@@ -305,7 +304,7 @@ char *read_title_name(u64 titleid, bool get_description)
 	{
 		//printf("Error allocating memory for buffer.\n");
 		logfile("Error allocating memory for buffer.\r\n");
-		goodbye();
+		return -2;
 	}
 	
 	memset(buffer, 0x00, sizeof(IMET));
@@ -319,7 +318,8 @@ char *read_title_name(u64 titleid, bool get_description)
 		//printf("Reading folder of the title failed.\n");
 		logfile("Reading folder of the title failed.\r\n");
 		if (list) free(list);
-		return titlename;
+		free(buffer);
+		return ret;
 	}
 	
 	for (cnt = 0; cnt < num; cnt++)
@@ -395,7 +395,7 @@ char *read_title_name(u64 titleid, bool get_description)
 					ISFS_Close(cfd);
 					free(list);
 					free(buffer);
-					return titlename;
+					return -1;
 				}
 				
 				ISFS_Close(cfd);
@@ -410,7 +410,7 @@ char *read_title_name(u64 titleid, bool get_description)
 						ISFS_Close(cfd);
 						free(list);
 						free(buffer);
-						goodbye();
+						return -2;
 					}
 					
 					memcpy(dlc_data, buffer, sizeof(WIBN));
@@ -438,7 +438,7 @@ char *read_title_name(u64 titleid, bool get_description)
 						ISFS_Close(cfd);
 						free(list);
 						free(buffer);
-						goodbye();
+						return -2;
 					}
 					
 					memcpy(banner_data, buffer, sizeof(IMET));
@@ -471,7 +471,7 @@ char *read_title_name(u64 titleid, bool get_description)
 				free(list);
 				free(buffer);
 				
-				return titlename;
+				return 0;
 			} else {
 				ISFS_Close(cfd);
 			}
@@ -481,10 +481,10 @@ char *read_title_name(u64 titleid, bool get_description)
 	free(list);
 	free(buffer);
 	
-	return titlename;
+	return -1;
 }
 
-char *read_save_name(u64 titleid, bool get_description)
+s32 read_save_name(u64 titleid, bool get_description)
 {
 	s32 cfd, ret;
     char path[ISFS_MAXPATH] ATTRIBUTE_ALIGN(32);
@@ -497,7 +497,7 @@ char *read_save_name(u64 titleid, bool get_description)
 	{
 		//printf("ISFS_Open for '%s' failed (%d).\n", path, cfd);
 		logfile("ISFS_Open for '%s' failed (%d).\r\n", path, cfd);
-		return titlename;
+		return -1;
 	}
 	
 	WIBN *save_data = allocate_memory(sizeof(WIBN));
@@ -505,7 +505,7 @@ char *read_save_name(u64 titleid, bool get_description)
 	{
 		//printf("Error allocating memory for buffer.\n");
 		logfile("Error allocating memory for buffer.\r\n");
-		goodbye();
+		return -2;
 	}
 	
 	ret = ISFS_Read(cfd, save_data, sizeof(WIBN));
@@ -515,7 +515,7 @@ char *read_save_name(u64 titleid, bool get_description)
 		logfile("ISFS_Read for '%s' failed (%d).\r\n", path, ret);
 		ISFS_Close(cfd);
 		free(save_data);
-		return titlename;
+		return -1;
 	}
 	
 	ISFS_Close(cfd);
@@ -532,40 +532,44 @@ char *read_save_name(u64 titleid, bool get_description)
 	
 	free(save_data);
 	
-	return titlename;
+	return 0;
 }
 
-char *get_name(u64 titleid, bool get_description)
+s32 get_name(u64 titleid, bool get_description)
 {
-	char *temp;
-	
+	s32 ret;
 	if (TITLE_UPPER(titleid) == 0x00010000 && TITLE_LOWER(titleid) != 0x48415a41)
 	{
-		temp = read_save_name(titleid, get_description);
+		ret = read_save_name(titleid, get_description);
+		if (ret < 0) return ret;
 	} else {
-		temp = read_title_name(titleid, get_description);
-		if (strncmp(temp, "Channel/Title deleted from Wii Menu? (couldn't get info)", 56) == 0)
+		ret = read_title_name(titleid, get_description);
+		if (ret < 0 && ret != -2)
 		{
-			temp = read_save_name(titleid, get_description);
+			ret = read_save_name(titleid, get_description);
+			if (ret < 0) return ret;
+		} else {
+			return ret;
 		}
 	}
 	
-	return temp;
+	return 0;
 }
 
-char *read_cntbin_name(FILE *cnt_bin, bool get_description)
+s32 read_cntbin_name(FILE *cnt_bin, bool get_description)
 {
 	u32 i;
 	int ret;
 	char str[20][42];
+	
+	snprintf(titlename, MAX_CHARACTERS(titlename), "Unknown (couldn't get info)");
 	
 	IMET *buf = allocate_memory(sizeof(IMET));
 	if (buf == NULL)
 	{
 		//printf("\nError allocating memory for buf.\n");
 		logfile("\r\nError allocating memory for buf.\r\n");
-		fclose(cnt_bin);
-		goodbye();
+		return -2;
 	}
 	
 	__fread(buf, sizeof(IMET), 1, cnt_bin);
@@ -576,8 +580,7 @@ char *read_cntbin_name(FILE *cnt_bin, bool get_description)
 		//printf("\nError decrypting data.\n");
 		logfile("\r\nError decrypting data.\r\n");
 		free(buf);
-		snprintf(titlename, MAX_CHARACTERS(titlename), "Unknown (couldn't get info)");
-		return titlename;
+		return -1;
 	}
 	
 	/* Convert strings to ASCII */
@@ -604,7 +607,7 @@ char *read_cntbin_name(FILE *cnt_bin, bool get_description)
 	
 	free(buf);
 	
-	return titlename;
+	return 0;
 }
 
 u32 pad_data(void *ptr, u32 len, bool pad_16)
@@ -654,7 +657,7 @@ s32 read_isfs(char *path, u8 **out, u32 *size)
 		//printf("Error allocating memory for out.\n");
 		logfile("\r\nError allocating memory for out.\r\n");
 		ISFS_Close(fd);
-		goodbye();
+		return -2;
 	}
 	
 	u32 blksize, writeindex = 0, restsize = *size;
@@ -762,67 +765,101 @@ void forge(signed_blob *data, bool is_tmd, bool verbose)
 	}
 	
 	u8 *ptr = (u8*)data;
-	if (is_tmd && change_region)
-	{
-		if (!isDLC)
-		{
-			/* Change WAD region in TMD */
-			ptr[0x19D] = region;
-		} else {
-			/* If the selected title is a DLC, change title ID to match the new region */
-			/* Otherwise, it won't be detected by its parent game/title from the new region */
-			ptr[0x193] = region;
-		}
-	} else
+	
 	if (!is_tmd)
 	{
-		if (isDLC && change_region)
-		{
-			/* If the selected title is a DLC, change title ID to match the new region */
-			/* Otherwise, it won't be detected by its parent game/title from the new region */
-			ptr[0x1E3] = region;
-			
-			/* Change 4th byte of the Permitted Titles Mask (parent TID region) */
-			ptr[0x1EB] = region;
-		}
-		
 		/* Wipe Console ID and ECDH data to avoid installation errors on other Wiis */
 		memset(ptr + 0x180, 0, 0x3C);
 		memset(ptr + 0x1D8, 0, 4);
 	}
 	
-	if (verbose && change_region)
+	if (change_region)
 	{
-		printf("Region changed to 0x%02x. ", region);
-		logfile("Region changed to 0x%02x. ", region);
+		if (is_tmd)
+		{
+			if (isDLC)
+			{
+				/* If the selected title is a DLC, change title ID to match the new region */
+				/* Otherwise, it won't be detected by its parent game/title from the new region */
+				ptr[0x193] = region;
+			} else {
+				/* Change WAD region in TMD */
+				ptr[0x19D] = region;
+			}
+		} else {
+			if (isDLC)
+			{
+				/* If the selected title is a DLC, change title ID to match the new region */
+				/* Otherwise, it won't be detected by its parent game/title from the new region */
+				ptr[0x1E3] = region;
+				
+				/* Change 4th byte of the Permitted Titles Mask (parent TID region) */
+				ptr[0x1EB] = region;
+			}
+		}
+		
+		if (verbose)
+		{
+			printf("Region changed to 0x%02x. ", region);
+			logfile("Region changed to 0x%02x. ", region);
+		}
 	}
 }
 
-s32 GetTMD(FILE *f, u64 id, signed_blob **tmd)
+s32 GetTMD(FILE *f, u64 id, signed_blob **tmd, bool have_pl)
 {
 	s32 ret;
 	u32 tmd_size;
 	
-	ret = ES_GetStoredTMDSize(id, &tmd_size);
-	if (ret < 0)
+	if (have_pl)
 	{
-		//printf("ES_GetStoredTMDSize for '%08x-%08x' failed (%d).\n", TITLE_UPPER(id), TITLE_LOWER(id), ret);
-		logfile("ES_GetStoredTMDSize for '%08x-%08x' failed (%d).\r\n", TITLE_UPPER(id), TITLE_LOWER(id), ret);
-		return -1;
+		char orig_tmd[ISFS_MAXPATH];
+		snprintf(orig_tmd, MAX_CHARACTERS(orig_tmd), "/title/00000001/00000002/content/title_or.tmd");
+		s32 cfd = ISFS_Open(orig_tmd, ISFS_OPEN_READ);
+		if (cfd >= 0)
+		{
+			u8 *buffer = NULL;
+			ret = read_isfs(orig_tmd, &buffer, &tmd_size);
+			if (ret < 0)
+			{
+				printf("Error getting TMD!\n");
+				return ret;
+			} else {
+				*tmd = (signed_blob *)buffer;
+			}
+		} else {
+			printf("Error: Couldn't open original System Menu TMD! (cfd = %d)", cfd);
+			logfile("Error: Couldn't open original System Menu TMD! (cfd = %d)", cfd);
+			return -1;
+		}
+	} else {
+		ret = ES_GetStoredTMDSize(id, &tmd_size);
+		if (ret < 0)
+		{
+			//printf("ES_GetStoredTMDSize for '%08x-%08x' failed (%d).\n", TITLE_UPPER(id), TITLE_LOWER(id), ret);
+			logfile("ES_GetStoredTMDSize for '%08x-%08x' failed (%d).\r\n", TITLE_UPPER(id), TITLE_LOWER(id), ret);
+			return -1;
+		}
+		
+		*tmd = allocate_memory(tmd_size);
+		if (*tmd == NULL)
+		{
+			logfile("Error allocating memory for TMD!");
+			return -2;
+		}
+		
+		ret = ES_GetStoredTMD(id, *tmd, tmd_size);
+		if (ret < 0)
+		{
+			//printf("ES_GetStoredTMD for '%08x-%08x' failed (%d).\n", TITLE_UPPER(id), TITLE_LOWER(id), ret);
+			logfile("ES_GetStoredTMD for '%08x-%08x' failed (%d).\r\n", TITLE_UPPER(id), TITLE_LOWER(id), ret);
+			free(*tmd);
+			return -1;
+		}
 	}
 	
 	logfile("TMD size = %u.\r\n", tmd_size);
 	header->tmd_len = tmd_size;
-	*tmd = allocate_memory(tmd_size);
-	
-	ret = ES_GetStoredTMD(id, *tmd, tmd_size);
-	if (ret < 0)
-	{
-		//printf("ES_GetStoredTMD for '%08x-%08x' failed (%d).\n", TITLE_UPPER(id), TITLE_LOWER(id), ret);
-		logfile("ES_GetStoredTMD for '%08x-%08x' failed (%d).\r\n", TITLE_UPPER(id), TITLE_LOWER(id), ret);
-		free(*tmd);
-		return -1;
-	}
 	
 	if ((tmd_size % 64) != 0)
 	{
@@ -843,7 +880,7 @@ s32 GetTicket(FILE *f, u64 id, signed_blob **tik)
 {
 	u32 tik_size;
 	u8 *buffer;
-	char path[ISFS_MAXPATH];
+	char path[ISFS_MAXPATH] = {0};
 	
 	snprintf(path, MAX_CHARACTERS(path), "/ticket/%08x/%08x.tik", TITLE_UPPER(id), TITLE_LOWER(id));
 	
@@ -852,7 +889,46 @@ s32 GetTicket(FILE *f, u64 id, signed_blob **tik)
 	if (ret < 0)
 	{
 		printf("Error getting Ticket!\n");
-		return -1;
+		
+		if (use_bootmii_data)
+		{
+			snprintf(path, MAX_CHARACTERS(path), "%s:/YABDM/Tickets/%08x-%08x.tik", DEVICE(0), TITLE_UPPER(id), TITLE_LOWER(id));
+			if (!create_folders(path)) return -1;
+			
+			FILE *dev_tik = fopen(path, "rb");
+			if (!dev_tik) return -1;
+			
+			printf("Loading ticket data from \"%s\"... ", path);
+			logfile("Loading ticket data from \"%s\"... ", path);
+			
+			fseek(dev_tik, 0, SEEK_END);
+			tik_size = ftell(dev_tik);
+			rewind(dev_tik);
+			
+			logfile("Ticket size: %u bytes. ", tik_size);
+			
+			if (tik_size < 0x2A4)
+			{
+				printf("\nError: Invalid Ticket size!");
+				logfile("Error: Invalid Ticket size!");
+				fclose(dev_tik);
+				return -1;
+			}
+			
+			buffer = allocate_memory(tik_size);
+			if (!buffer)
+			{
+				printf("\nError allocating memory.");
+				logfile("Error allocating memory.");
+				fclose(dev_tik);
+				return -2;
+			}
+			
+			__fread(buffer, tik_size, 1, dev_tik);
+			fclose(dev_tik);
+		} else {
+			return ret;
+		}
 	}
 	
 	if (tik_size > 0x2A4)
@@ -891,21 +967,22 @@ s32 GetTicket(FILE *f, u64 id, signed_blob **tik)
 	return 0;
 }	
 
-void GetCerts(FILE *f)
+s32 GetCerts(FILE *f)
 {
 	if (cert_sys_size != 2560)
 	{
-		printf("Couldn't get '/sys/cert.sys'. Exiting...");
-		logfile("Couldn't get '/sys/cert.sys'. Exiting...");
-		goodbye();
+		printf("Wrong certificate chain size! Exiting...");
+		logfile("Wrong certificate chain size! Exiting...");
+		return -1;
 	}
 	
 	__fwrite(cert_sys, cert_sys_size, 1, f);
-	
 	header->certs_len = cert_sys_size;
+	
+	return 0;
 }
 
-s32 GetContent(FILE *f, u64 id, u16 content, u8* key, u16 index, u32 size, u8 *hash)
+s32 GetContent(FILE *f, u64 id, u32 content, u8* key, u16 index, u32 size, u8 *hash)
 {
 	char path[ISFS_MAXPATH];
 	
@@ -936,7 +1013,7 @@ s32 GetContent(FILE *f, u64 id, u16 content, u8* key, u16 index, u32 size, u8 *h
 		logfile("Error allocating memory for buffer.\r\n");
 		ISFS_Close(fd);
 		fclose(f);
-		goodbye();
+		return -2;
 	}
 	
 	int ret = 0;
@@ -977,17 +1054,20 @@ s32 GetContent(FILE *f, u64 id, u16 content, u8* key, u16 index, u32 size, u8 *h
 	free(buffer);
 	ISFS_Close(fd);
 	
-	sha1 cnthash;
-	SHA1Final(cnthash, &ctx);
-	logfile("Dumped content hash: ");
-	hex_key_dump(cnthash, 20);
-	logfile("\r\n");
-	
-	if (memcmp(hash, cnthash, 20) != 0)
+	if (ret >= 0)
 	{
-		printf("\nError: hash didn't match!\n");
-		logfile("Error: hash didn't match!\r\n");
-		if (ret >= 0) ret = -1;
+		sha1 cnthash;
+		SHA1Final(cnthash, &ctx);
+		logfile("Dumped content hash: ");
+		hex_key_dump(cnthash, 20);
+		logfile("\r\n");
+		
+		if (memcmp(hash, cnthash, 20) != 0)
+		{
+			printf("\nError: hash didn't match!\n");
+			logfile("Error: hash didn't match!\r\n");
+			if (ret >= 0) ret = -1;
+		}
 	}
 	
 	if (ret < 0) return ret;
@@ -1013,7 +1093,7 @@ void GetContentMap()
 	{
 		printf("\nError opening '/shared1/content.map' for reading.");
 		logfile("\r\nError opening '/shared1/content.map' for reading.");
-		goodbye();
+		return;
 	}
 	
 	content_map_size = status.file_length;
@@ -1042,13 +1122,13 @@ s32 GetSharedContent(FILE *f, u8* key, u16 index, u8* hash, map_entry_t *cm, u32
 	printf("Adding shared content... ");
 	for (i = 0; i < elements; i++)
 	{
-		if(memcmp(cm[i].sha1, hash, 20) == 0)
+		if (memcmp(cm[i].sha1, hash, 20) == 0)
 		{
 			found = true;
 			snprintf(path, MAX_CHARACTERS(path), "/shared1/%.8s.app", cm[i].filename);
 			logfile("Found shared content! Path is '%s'.\r\nReading... ", path);
 			ret = read_isfs(path, &shared_buf, &shared_size);
-			if (ret < 0) return -1;
+			if (ret < 0) return ret;
 			logfile("done.\r\n");
 			
 			/* Required for the encryption process */
@@ -1132,9 +1212,7 @@ s32 GetContentFromCntBin(FILE *cnt_bin, FILE *wadout, u16 index, u32 size, u8 *k
 	{
 		//printf("Error allocating memory for buffer.\n");
 		logfile("Error allocating memory for buffer.\r\n");
-		fclose(cnt_bin);
-		fclose(wadout);
-		goodbye();
+		return -2;
 	}
 	
 	int ret = 0;
@@ -1199,17 +1277,20 @@ s32 GetContentFromCntBin(FILE *cnt_bin, FILE *wadout, u16 index, u32 size, u8 *k
 	
 	free(buffer);
 	
-	sha1 cnthash;
-	SHA1Final(cnthash, &ctx);
-	logfile("Dumped content hash: ");
-	hex_key_dump(cnthash, 20);
-	logfile("\r\n");
-	
-	if (memcmp(hash, cnthash, 20) != 0)
+	if (ret >= 0)
 	{
-		printf("\nError: hash didn't match!\n");
-		logfile("Error: hash didn't match!\r\n");
-		if (ret >= 0) ret = -1;
+		sha1 cnthash;
+		SHA1Final(cnthash, &ctx);
+		logfile("Dumped content hash: ");
+		hex_key_dump(cnthash, 20);
+		logfile("\r\n");
+		
+		if (memcmp(hash, cnthash, 20) != 0)
+		{
+			printf("\nError: hash didn't match!\n");
+			logfile("Error: hash didn't match!\r\n");
+			if (ret >= 0) ret = -1;
+		}
 	}
 	
 	if (ret < 0) return ret;
@@ -1301,7 +1382,7 @@ s32 dumpfile(char *source, char *destination)
 	{
 		//printf("Error allocating memory for buffer.\n");
 		logfile("Error allocating memory for buffer.\r\n");
-		goodbye();
+		return -2;
 	}
 	
 	int fd = ISFS_Open(source, ISFS_OPEN_READ);
@@ -1309,7 +1390,8 @@ s32 dumpfile(char *source, char *destination)
 	{
 		//printf("\nError: ISFS_OpenFile for '%s' returned %d.\n", source, fd);
 		logfile("\r\nError: ISFS_OpenFile for '%s' returned %d.\r\n", source, fd);
-		return fd;
+		free(buffer);
+		return -1;
 	}
 
 	FILE *file = fopen(destination, "wb+");
@@ -1318,6 +1400,7 @@ s32 dumpfile(char *source, char *destination)
 		//printf("\nError: fopen for '%s' returned 0 .\n", destination);
 		logfile("\r\nError: fopen '%s' returned 0.\r\n", destination);
 		ISFS_Close(fd);
+		free(buffer);
 		return -1;
 	}
 	
@@ -1328,8 +1411,9 @@ s32 dumpfile(char *source, char *destination)
 		logfile("\r\nISFS_GetFileStats(fd) returned %d.\r\n", ret);
 		ISFS_Close(fd);
 		fclose(file);
+		free(buffer);
 		remove(destination);
-		return ret;
+		return -1;
 	}
 	
 	Con_ClearLine();
@@ -1355,7 +1439,7 @@ s32 dumpfile(char *source, char *destination)
 			fclose(file);
 			free(buffer);
 			remove(destination);
-			return ret;
+			return -1;
 		}
 		
 		ret = __fwrite(buffer, size, 1, file);
@@ -1367,7 +1451,7 @@ s32 dumpfile(char *source, char *destination)
 			fclose(file);
 			free(buffer);
 			remove(destination);
-			return ret;
+			return -1;
 		}
 		
 		restsize -= size;
@@ -1389,7 +1473,7 @@ s32 flash(char* source, char* destination)
 	{
 		//printf("Error allocating memory for buffer.\n");
 		logfile("Error allocating memory for buffer.\r\n");
-		goodbye();
+		return -2;
 	}
 	
 	FILE *file = fopen(source, "rb");
@@ -1404,9 +1488,26 @@ s32 flash(char* source, char* destination)
 	fseek(file, 0, SEEK_END);
 	u32 filesize = ftell(file);
 	rewind(file);
-
-	ISFS_Delete(destination);
-	ISFS_CreateFile(destination, 0, 3, 3, 3);
+	
+	ret = ISFS_Delete(destination);
+	if (ret < 0)
+	{
+		printf("ISFS_Delete('%s') returned %d.\n", destination, ret);
+		logfile("ISFS_Delete('%s') returned %d.\r\n", destination, ret);
+		fclose(file);
+		free(buffer);
+		return -1;
+	}
+	
+	ret = ISFS_CreateFile(destination, 0, 3, 3, 3);
+	if (ret < 0)
+	{
+		printf("ISFS_CreateFile('%s', 0, 3, 3, 3) returned %d.\n", destination, ret);
+		logfile("ISFS_CreateFile('%s', 0, 3, 3, 3) returned %d.\r\n", destination, ret);
+		fclose(file);
+		free(buffer);
+		return -1;
+	}
 	
 	nandfile = ISFS_Open(destination, ISFS_OPEN_RW);
 	if (nandfile < 0)
@@ -1490,7 +1591,7 @@ s32 flash(char* source, char* destination)
 	return 0;
 }
 
-bool dumpfolder(char source[1024], char destination[1024])
+s32 dumpfolder(char source[1024], char destination[1024])
 {
 	//logfile("\r\n[DUMPFOLDER] Source : '%s' / Destination: '%s'.\r\n", source, destination);
 	
@@ -1506,7 +1607,7 @@ bool dumpfolder(char source[1024], char destination[1024])
 		printf("Error reading source directory.\n");
 		logfile("Error reading source directory.\r\n");
 		if (dir) free(dir);
-		return false;
+		return ret;
 	}
 	
 	remove(destination);
@@ -1525,7 +1626,8 @@ bool dumpfolder(char source[1024], char destination[1024])
 			{
 				//printf("Error creating folder(s) for '%s'.\n", path2);
 				logfile("Error creating folder(s) for '%s'.\r\n", path2);
-				return false;
+				free(dir);
+				return -1;
 			}
 			
 			if (dir[i].type == DIRENT_T_FILE) 
@@ -1537,17 +1639,18 @@ bool dumpfolder(char source[1024], char destination[1024])
 					printf("Error dumping file from NAND.\n");
 					logfile("Error dumping file from NAND.\r\n");
 					free(dir);
-					return false;
+					return ret;
 				}
 			} else {
 				logfile("Destination dir is '%s'.\r\n", path2);
 				remove(path2);
 				
-				if (!dumpfolder(path, path2))
+				ret = dumpfolder(path, path2);
+				if (ret < 0)
 				{
 					//remove(path2);
 					free(dir);
-					return false;
+					return ret;
 				}
 			}
 		} else {
@@ -1558,10 +1661,10 @@ bool dumpfolder(char source[1024], char destination[1024])
 	}
 	
 	free(dir);
-	return true;
+	return 0;
 }
 
-bool writefolder(char *source, char *destination)
+s32 writefolder(char *source, char *destination)
 {
 	//logfile("\r\n[WRITEFOLDER] Source : '%s' / Destination: '%s'.\r\n", source, destination);
 	
@@ -1578,13 +1681,26 @@ bool writefolder(char *source, char *destination)
 		printf("Error reading source directory.\n");
 		logfile("Error reading source directory.\r\n");
 		if (dir) free(dir);
-		return false;
+		return ((ret == -3) ? -2 : ret);
 	}
 	
 	ret = ISFS_Delete(destination);
-	logfile("ISFS_Delete('%s') returned %d.\r\n", destination, ret);
+	if (ret < 0)
+	{
+		printf("ISFS_Delete('%s') returned %d.\n", destination, ret);
+		logfile("ISFS_Delete('%s') returned %d.\r\n", destination, ret);
+		free(dir);
+		return -1;
+	}
+	
 	ret = ISFS_CreateDir(destination, 0, 3, 3, 3);
-	logfile("ISFS_CreateDir('%s', 0, 3, 3, 3) returned %d.\r\n", destination, ret);
+	if (ret < 0)
+	{
+		printf("ISFS_CreateDir('%s', 0, 3, 3, 3) returned %d.\n", destination, ret);
+		logfile("ISFS_CreateDir('%s', 0, 3, 3, 3) returned %d.\r\n", destination, ret);
+		free(dir);
+		return -1;
+	}
 	
 	for (i = 0; i < tcnt; i++) 
 	{
@@ -1605,23 +1721,24 @@ bool writefolder(char *source, char *destination)
 					printf("Error flashing file to NAND.\n");
 					logfile("Error flashing file to NAND.\r\n");
 					free(dir);
-					return false;
+					return ret;
 				}
 			} else {
 				logfile("Destination dir is '%s'.\r\n", path2);
 				
-				if (!writefolder(path, path2))
+				ret = writefolder(path, path2);
+				if (ret < 0)
 				{
 					//ISFS_Delete(path2);
 					free(dir);
-					return false;
+					return ret;
 				}
 			}
 		}
 	}
 	
 	free(dir);
-	return true;
+	return 0;
 }
 
 char *GetASCII(u32 name)
@@ -1656,7 +1773,7 @@ char *RemoveIllegalCharacters(char *name)
 	return name;
 }
 
-void extract_savedata(u64 titleID)
+s32 extract_savedata(u64 titleID)
 {
 	s32 ret;
 	char *id = GetASCII(TITLE_LOWER(titleID));
@@ -1666,36 +1783,16 @@ void extract_savedata(u64 titleID)
 	snprintf(isfs_path, MAX_CHARACTERS(isfs_path), "/title/%08x/%08x/data", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
 	logfile("ISFS path is '%s'.\r\n", isfs_path);
 	
-	if (TITLE_UPPER(titleID) == 0x00010000)
-	{
-		//snprintf(dev_path, MAX_CHARACTERS(dev_path), "%s:/YABDM/Savedata/DISC %s", DEVICE(0), id);
-		snprintf(dev_path, MAX_CHARACTERS(dev_path), "%s:/YABDM/Savedata/DISC %s - %s", DEVICE(0), id, RemoveIllegalCharacters(get_name(titleID, false)));
-		logfile("Savedata type: disc-based game.\r\n");
-	} else
-	if (TITLE_UPPER(titleID) == 0x00010001)
-	{
-		/* Workaround for HBC 1.0.7 - 1.1.0*/
-		if (TITLE_LOWER(titleID) == 0xAF1BF516)
-		{
-			//snprintf(dev_path, MAX_CHARACTERS(dev_path), "%s:/YABDM/Savedata/CHAN AF1BF516", DEVICE(0));
-			snprintf(dev_path, MAX_CHARACTERS(dev_path), "%s:/YABDM/Savedata/CHAN AF1BF516 - Homebrew Channel", DEVICE(0));
-			logfile("Savedata type: The Homebrew Channel (1.0.7 - 1.1.0).\r\n");
-		} else {
-			//snprintf(dev_path, MAX_CHARACTERS(dev_path), "%s:/YABDM/Savedata/CHAN %s", DEVICE(0), id);
-			snprintf(dev_path, MAX_CHARACTERS(dev_path), "%s:/YABDM/Savedata/CHAN %s - %s", DEVICE(0), id, RemoveIllegalCharacters(get_name(titleID, false)));
-			logfile("Savedata type: downloaded channel title.\r\n");
-		}
-	} else
-	if (TITLE_UPPER(titleID) == 0x00010004)
-	{
-		//snprintf(dev_path, MAX_CHARACTERS(dev_path), "%s:/YABDM/Savedata/CHSV %s", DEVICE(0), id);
-		snprintf(dev_path, MAX_CHARACTERS(dev_path), "%s:/YABDM/Savedata/CHSV %s - %s", DEVICE(0), id, RemoveIllegalCharacters(get_name(titleID, false)));
-		logfile("Savedata type: game that uses channel.\r\n");
-	}
+	ret = get_name(titleID, false);
+	if (ret < 0) return ret;
 	
+	//snprintf(dev_path, MAX_CHARACTERS(dev_path), "%s:/YABDM/Savedata/%s %s", DEVICE(0), ((TITLE_UPPER(titleID) == 0x00010000) ? "DISC" : ((TITLE_UPPER(titleID) == 0x00010001) ? "CHAN" : "CHSV")), ((TITLE_LOWER(titleID) == 0xAF1BF516) ? "AF1BF516" : id));
+	snprintf(dev_path, MAX_CHARACTERS(dev_path), "%s:/YABDM/Savedata/%s %s - %s", DEVICE(0), ((TITLE_UPPER(titleID) == 0x00010000) ? "DISC" : ((TITLE_UPPER(titleID) == 0x00010001) ? "CHAN" : "CHSV")), ((TITLE_LOWER(titleID) == 0xAF1BF516) ? "AF1BF516" : id), RemoveIllegalCharacters(titlename));
+	logfile("Savedata type: %s.\r\n", ((TITLE_UPPER(titleID) == 0x00010000) ? "disc-based game" : ((TITLE_UPPER(titleID) == 0x00010004) ? "game that uses channel" : ((TITLE_LOWER(titleID) == 0xAF1BF516) ? "The Homebrew Channel (1.0.7 - 1.1.0)" : "downloaded channel title"))));
 	logfile("%s path is '%s'.\r\n", DEVICE(1), dev_path);
 	
-	if (dumpfolder(isfs_path, dev_path))
+	ret = dumpfolder(isfs_path, dev_path);
+	if (ret >= 0)
 	{
 		/* Dump the title.tmd file */
 		snprintf(isfs_path, MAX_CHARACTERS(isfs_path), "/title/%08x/%08x/content/title.tmd", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
@@ -1709,14 +1806,19 @@ void extract_savedata(u64 titleID)
 		{
 			printf("\n\nError dumping title.tmd to %s.\n", DEVICE(1));
 			logfile("\r\nError dumping title.tmd to %s.\r\n", DEVICE(1));
+			return ret;
 		} else {
 			printf("\n\nDumping folder complete.\n");
 			logfile("\r\nDumping folder complete.\r\n");
 		}
+	} else {
+		return ret;
 	}
+	
+	return 0;
 }	
 
-void install_savedata(u64 titleID)
+s32 install_savedata(u64 titleID)
 {
 	s32 ret;
 	bool found = false;
@@ -1738,7 +1840,7 @@ void install_savedata(u64 titleID)
 		printf("Error reading savedata directory.\n");
 		logfile("Error reading savedata directory.\r\n");
 		if (dir) free(dir);
-		return;
+		return ((ret == -3) ? -2 : ret);
 	}
 	
 	for (i = 0; i < tcnt; i++)
@@ -1757,15 +1859,15 @@ void install_savedata(u64 titleID)
 	{
 		printf("Couldn't find the savedata on the %s!\nPlease extract the savedata first.\n", (isSD ? "SD card" : "USB storage"));
 		logfile("\r\nCouldn't find the savedata on the %s!\r\n", (isSD ? "SD card" : "USB storage"));
-		sleep(3);
-		return;
+		return -1;
 	} else {
 		logfile("Savedata found: '%s'.\r\n", dir[i].name);
 		snprintf(dev_path, MAX_CHARACTERS(dev_path), "%s/%s", dev_path, dir[i].name);
 		logfile("%s path is '%s'.\r\n", DEVICE(1), dev_path);
 	}
 	
-	if (writefolder(dev_path, isfs_path))
+	ret = writefolder(dev_path, isfs_path);
+	if (ret >= 0)
 	{
 		/* Flash the title.tmd file */
 		snprintf(isfs_path, MAX_CHARACTERS(isfs_path), "/title/%08x/%08x/content/title.tmd", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
@@ -1779,11 +1881,16 @@ void install_savedata(u64 titleID)
 		{
 			printf("\n\nError flashing title.tmd to NAND.\n");
 			logfile("Error flashing title.tmd to NAND.\r\n");
+			return ret;
 		} else {
 			printf("\n\nFlashing to NAND complete.\n");
 			logfile("\r\nFlashing to NAND complete.\r\n");
 		}
+	} else {
+		return ret;
 	}
+	
+	return 0;
 }	
 
 /* Info taken from WiiBrew and WiiUBrew */
@@ -1973,8 +2080,8 @@ void browser(char cpath[ISFS_MAXPATH + 1], dirent_t* ent, int cline, int lcnt)
 	//logfile("\r\n\r\nBROWSER: Using Wii NAND. Inserted device: %s.\r\nPath: %s\r\n", (isSD ? "SD Card" : "USB Storage"), cpath);
 	
 	printf("[A] Confirm / Enter directory  [B] Cancel / Return to parent directory\n");
-	printf("[1/Y] Dump options  [2/X] Change view mode  [A+B] Update application\n");
-	printf("[-/L] Device menu  [+/R] Content.bin conversion  [HOME/Start] Exit\n\n");
+	printf("[1/Y] Dump options  [2/X] Change view mode  [+/R] Content.bin conversion\n");
+	printf("[-/L] Additional settings  [HOME/Start] Exit\n\n");
 	
 	printf("Current device: %s. Path: %s\n\n", DEVICE(1), cpath);
 	
@@ -2001,14 +2108,14 @@ void browser(char cpath[ISFS_MAXPATH + 1], dirent_t* ent, int cline, int lcnt)
 	fflush(stdout);
 }
 
-void make_header(void)
+s32 make_header(void)
 {
 	wadHeader *now = allocate_memory(sizeof(wadHeader));
 	if (now == NULL) 
 	{
 		//printf("Error allocating memory for wadheader.\n");
 		logfile("Error allocating memory for wadheader.\r\n");
-		goodbye();
+		return -1;
 	}
 	
 	now->header_len = 0x20;
@@ -2030,6 +2137,8 @@ void make_header(void)
 	now->footer_len = 0;
 	
 	header = now;
+	
+	return 0;
 }	
 
 s32 get_title_key(u64 tid, signed_blob *s_tik, u8 *key)
@@ -2065,7 +2174,8 @@ s32 get_title_key(u64 tid, signed_blob *s_tik, u8 *key)
 
 s32 Wad_Dump(u64 id, char *path)
 {
-	make_header();
+	s32 ret = make_header();
+	if (ret < 0) return -2;
 	
 	logfile("Path for dump = %s.\r\n", path);
 	logfile("Started WAD Packing...\r\nPacking Title %08x-%08x.\r\n", TITLE_UPPER(id), TITLE_LOWER(id));
@@ -2076,7 +2186,6 @@ s32 Wad_Dump(u64 id, char *path)
 	tmd *tmd_data = NULL;
 	u8 key[16];
 	
-	s32 ret;
 	u32 cnt;
 	
 	if (!create_folders(path))
@@ -2104,16 +2213,26 @@ s32 Wad_Dump(u64 id, char *path)
 		free(header);
 		fclose(wadout);
 		remove(path);
-		goodbye();
+		return -2;
 	}
 	memset(padding_table, 0, 64);
 	__fwrite(padding_table, 64, 1, wadout);
 	free(padding_table);
 	
+	/* Check for Priiloader */
+	bool priiloader = PriiloaderCheck(id);
+	
 	/* Get Certs */
 	printf("Reading Certs... ");
 	logfile("Reading Certs... ");
-	GetCerts(wadout);
+	ret = GetCerts(wadout);
+	if (ret < 0)
+	{
+		free(header);
+		fclose(wadout);
+		remove(path);
+		return -2;
+	}
 	printf("done.\n");
 	logfile("done.\r\n");
 	
@@ -2126,7 +2245,7 @@ s32 Wad_Dump(u64 id, char *path)
 		free(header);
 		fclose(wadout);
 		remove(path);
-		return -1;
+		return ret;
 	}
 	printf("OK.\n");
 	logfile("OK.\r\n");
@@ -2134,14 +2253,14 @@ s32 Wad_Dump(u64 id, char *path)
 	/* Get TMD */
 	printf("Reading TMD... ");
 	logfile("Reading TMD... ");
-	ret = GetTMD(wadout, id, &p_tmd);
+	ret = GetTMD(wadout, id, &p_tmd, priiloader);
 	if (ret < 0)
 	{
 		free(header);
 		free(p_tik);
 		fclose(wadout);
 		remove(path);
-		return -1;
+		return ret;
 	}
 	printf("OK.\n");
 	logfile("OK.\r\n");
@@ -2185,12 +2304,16 @@ s32 Wad_Dump(u64 id, char *path)
 		
 		if (cnt == 0) snprintf(footer_path, MAX_CHARACTERS(footer_path), "/title/%08x/%08x/content/%08x.app", TITLE_UPPER(id), TITLE_LOWER(id), content->cid);
 		
+		bool is_pl_cnt = false;
+		
 		logfile("Content type 0x%04x... ", content->type);
 		switch (content->type)
 		{
 			case 0x0001: // Normal
 			case 0x4001: // DLC
-				ret = GetContent(wadout, id, content->cid, (u8*)key, content->index, (u32)content->size, content->hash);
+				if (priiloader) is_pl_cnt = IsPriiloaderCnt(content->cid);
+				
+				ret = GetContent(wadout, id, (is_pl_cnt ? ((1 << 28) | content->cid) : ((u32)content->cid)), (u8*)key, content->index, (u32)content->size, content->hash);
 				if (content->type == 0x4001 && ret == -106)
 				{
 					ret = 0; // Nothing happened here, boy.
@@ -2236,11 +2359,8 @@ s32 Wad_Dump(u64 id, char *path)
 			default:
 				printf("Unknown content type. Aborting mission...\n");
 				logfile("Unknown content type. Aborting mission...\r\n");
-				free(header);
-				free(p_tmd);
-				fclose(wadout);
-				remove(path);
-				goodbye();
+				ret = -2;
+				break;
 		}
 		
 		fflush(stdout);
@@ -2252,13 +2372,17 @@ s32 Wad_Dump(u64 id, char *path)
 	
 	if (ret < 0)
 	{
-		printf("\nError reading content!\n");
-		logfile("Error reading content! (ret = %d)", ret);
+		if (ret != -2)
+		{
+			printf("\nError reading content!\n");
+			logfile("Error reading content! (ret = %d)", ret);
+		}
+		
 		free(header);
 		free(tmdmod);
 		fclose(wadout);
 		remove(path);
-		return -1;
+		return ret;
 	}
 	
 	/* Add unencrypted footer */
@@ -2273,9 +2397,10 @@ s32 Wad_Dump(u64 id, char *path)
 		printf("Error getting footer!\n");
 		logfile("Error getting footer!\r\n");
 		free(header);
+		free(tmdmod);
 		fclose(wadout);
 		remove(path);
-		return -1;
+		return ret;
 	}
 	
 	header->footer_len = footer_size;
@@ -2351,72 +2476,10 @@ s32 Wad_Dump(u64 id, char *path)
 	return 0;
 }
 
-s32 LoadTikFromDevice(FILE *f, u64 tid, signed_blob **tik)
-{
-	char tpath[ISFS_MAXPATH] = {0};
-	snprintf(tpath, MAX_CHARACTERS(tpath), "%s:/YABDM/Tickets/%08x-%08x.tik", DEVICE(0), TITLE_UPPER(tid), TITLE_LOWER(tid));
-	
-	if (!create_folders(tpath)) return -1;
-	
-	FILE *device_tik = fopen(tpath, "rb");
-	if (!device_tik) return -1;
-	
-	printf("Loading ticket data from \"%s\"...\n", tpath);
-	logfile("Loading ticket data from \"%s\"... ", tpath);
-	
-	fseek(device_tik, 0, SEEK_END);
-	u32 tik_size = ftell(device_tik);
-	rewind(device_tik);
-	
-	logfile("Ticket size: %u bytes. ", tik_size);
-	
-	if (tik_size > 0x2A4)
-	{
-		tik_size = 0x2A4;
-		logfile("Ticket size reduced to 0x2A4 (multiple tickets). ");
-	}
-		
-	u8 *tik_buf = allocate_memory(tik_size);
-	if (!tik_buf)
-	{
-		printf("Error allocating memory.");
-		logfile("Error allocating memory.");
-		fclose(device_tik);
-		return -2;
-	}
-	
-	header->tik_len = tik_size;
-	__fread(tik_buf, tik_size, 1, device_tik);
-	fclose(device_tik);
-	
-	tik_size = pad_data(tik_buf, tik_size, false);
-	logfile("Padded Ticket size = %u bytes.\r\n", tik_size);
-	
-	/* Change the Common Key Index to 0x00 */
-	/* Useful to avoid installation errors with WADs dumped from a Korean Wii (0x01) or vWii (0x02) */
-	if (tik_buf[0x1F1] > 0)
-	{
-		printf("Setting Common Key Index to 0x00 (was 0x%02x). ", tik_buf[0x1F1]);
-		logfile("Setting Common Key Index to 0x00 (was 0x%02x). ", tik_buf[0x1F1]);
-		
-		tik_buf[0x1F1] = 0x00;
-		if (!ftik) ftik = true;
-	}
-	
-	/* Fakesign ticket */
-	if (ftik) forge((signed_blob *)tik_buf, false, true);
-	
-	/* Write to output WAD */
-	__fwrite(tik_buf, tik_size, 1, f);
-	
-	*tik = (signed_blob *)tik_buf;
-	
-	return 0;
-}
-
 s32 Content_bin_Dump(FILE *cnt_bin, char* path)
 {
-	make_header();
+	s32 ret = make_header();
+	if (ret < 0) return -2;
 	
 	logfile("Path for dump = %s.\r\n", path);
 	logfile("Started WAD Packing...\r\n");
@@ -2428,7 +2491,6 @@ s32 Content_bin_Dump(FILE *cnt_bin, char* path)
 	
 	u8 key[16];
 	
-	s32 ret;
 	u64 titleID;
 	u32 i, cnt, part_C_cid, tmd_size = 0, footer_offset = 0;
 	
@@ -2459,10 +2521,9 @@ s32 Content_bin_Dump(FILE *cnt_bin, char* path)
 		//printf("\nError allocating memory for padding_table.\n");
 		logfile("Error allocating memory for padding_table.\r\n");
 		free(header);
-		fclose(cnt_bin);
 		fclose(wadout);
 		remove(path);
-		goodbye();
+		return -2;
 	}
 	memset(padding_table, 0, 64);
 	__fwrite(padding_table, 64, 1, wadout);
@@ -2471,7 +2532,14 @@ s32 Content_bin_Dump(FILE *cnt_bin, char* path)
 	/* Get Certs */
 	printf("Reading Certs... ");
 	logfile("Reading Certs... ");
-	GetCerts(wadout);
+	ret = GetCerts(wadout);
+	if (ret < 0)
+	{
+		free(header);
+		fclose(wadout);
+		remove(path);
+		return -2;
+	}
 	printf("done.\n");
 	logfile("done.\r\n");
 	
@@ -2484,10 +2552,9 @@ s32 Content_bin_Dump(FILE *cnt_bin, char* path)
 		if (ret < 0)
 		{
 			free(header);
-			fclose(cnt_bin);
 			fclose(wadout);
 			remove(path);
-			goodbye();
+			return ret;
 		} else {
 			printf("done.\n");
 			logfile("done.\r\n");
@@ -2508,10 +2575,9 @@ s32 Content_bin_Dump(FILE *cnt_bin, char* path)
 		//printf("\nError allocating memory for temp.");
 		logfile("\r\nError allocating memory for temp.");
 		free(header);
-		fclose(cnt_bin);
 		fclose(wadout);
 		remove(path);
-		goodbye();
+		return -2;
 	}
 	
 	fseek(cnt_bin, 0x644, SEEK_SET);
@@ -2544,7 +2610,7 @@ s32 Content_bin_Dump(FILE *cnt_bin, char* path)
 					free(header);
 					fclose(wadout);
 					remove(path);
-					return -1;
+					return ret;
 				}
 			}
 			
@@ -2583,10 +2649,9 @@ s32 Content_bin_Dump(FILE *cnt_bin, char* path)
 		printf("Error allocating memory for p_tmd.\n");
 		logfile("Error allocating memory for p_tmd.\r\n");
 		free(header);
-		fclose(cnt_bin);
 		fclose(wadout);
 		remove(path);
-		goodbye();
+		return -2;
 	}
 	
 	__fread(tmd_buf, tmd_size, 1, cnt_bin);
@@ -2617,31 +2682,11 @@ s32 Content_bin_Dump(FILE *cnt_bin, char* path)
 	ret = GetTicket(wadout, titleID, &p_tik);
 	if (ret < 0)
 	{
-		if (use_bootmii_data)
-		{
-			ret = LoadTikFromDevice(wadout, titleID, &p_tik);
-			if (ret < 0)
-			{
-				free(header);
-				free(tmd_buf);
-				fclose(wadout);
-				remove(path);
-				
-				if (ret == -2)
-				{
-					fclose(cnt_bin);
-					goodbye();
-				} else {
-					return -1;
-				}
-			}
-		} else {
-			free(header);
-			free(tmd_buf);
-			fclose(wadout);
-			remove(path);
-			return -1;
-		}
+		free(header);
+		free(tmd_buf);
+		fclose(wadout);
+		remove(path);
+		return ret;
 	}
 	printf("OK.\n");
 	logfile("OK.\r\n");
@@ -2700,12 +2745,8 @@ s32 Content_bin_Dump(FILE *cnt_bin, char* path)
 			default:
 				printf("Unknown content type. Aborting mission...\n");
 				logfile("Unknown content type. Aborting mission...\r\n");
-				free(header);
-				free(p_tmd);
-				fclose(cnt_bin);
-				fclose(wadout);
-				remove(path);
-				goodbye();
+				ret = -2;
+				break;
 		}
 		
 		fflush(stdout);
@@ -2718,12 +2759,16 @@ s32 Content_bin_Dump(FILE *cnt_bin, char* path)
 	
 	if (ret < 0)
 	{
-		printf("\nError reading content!\n");
-		logfile("Error reading content!");
+		if (ret != -2)
+		{
+			printf("\nError reading content!\n");
+			logfile("Error reading content!");
+		}
+		
 		free(header);
 		fclose(wadout);
 		remove(path);
-		return -1;
+		return ret;
 	}
 	
 	/* Add unencrypted footer */
@@ -2736,10 +2781,9 @@ s32 Content_bin_Dump(FILE *cnt_bin, char* path)
 		printf("Error allocating memory for footer_buf.\n");
 		logfile("Error allocating memory for footer_buf.\r\n");
 		free(header);
-		fclose(cnt_bin);
 		fclose(wadout);
 		remove(path);
-		goodbye();
+		return -2;
 	}
 	
 	logfile("Footer offset: 0x%08x... ", footer_offset);
@@ -2898,7 +2942,7 @@ void select_forge(int type)
 	}
 }
 
-void dump_menu(char *cpath, int cline, dirent_t *ent)
+s32 dump_menu(char *cpath, int cline, dirent_t *ent)
 {
 	u32 pressed;
 	
@@ -2930,7 +2974,7 @@ void dump_menu(char *cpath, int cline, dirent_t *ent)
 			if (selection < 2) selection++;
 		}
 		
-		if (pressed == WPAD_BUTTON_B) return;
+		if (pressed == WPAD_BUTTON_B) return 0;
 		if (pressed == WPAD_BUTTON_A) break;
 	}
 	
@@ -2941,6 +2985,8 @@ void dump_menu(char *cpath, int cline, dirent_t *ent)
 	u64 titleID = copy_id(some);
 	u32 low = TITLE_LOWER(titleID);
 	
+	s32 ret = 0;
+	
 	switch (selection)
 	{
 		case 0: // Backup savedata
@@ -2948,7 +2994,7 @@ void dump_menu(char *cpath, int cline, dirent_t *ent)
 			{
 				printf("\n\nBacking up savedata...\n\n");
 				logfile("Backing up savedata...\r\n");
-				extract_savedata(titleID);
+				ret = extract_savedata(titleID);
 			} else {
 				printf("\n\nThe title you chose has no savedata!\n");
 				printf("Use the WAD function for this.");
@@ -2959,7 +3005,7 @@ void dump_menu(char *cpath, int cline, dirent_t *ent)
 			{
 				printf("\n\nRestoring savedata...\n\n");
 				logfile("Restoring savedata...\r\n");
-				install_savedata(titleID);
+				ret = install_savedata(titleID);
 			} else {
 				printf("\n\nThe title you chose has no savedata!\n");
 				printf("Use the WAD function for this.");
@@ -2987,7 +3033,13 @@ void dump_menu(char *cpath, int cline, dirent_t *ent)
 					/* Workaround for HBC 1.0.7 - 1.1.0 */
 					if (low != 0xAF1BF516)
 					{
-						snprintf(dump_path, MAX_CHARACTERS(dump_path), "%s:/YABDM/WAD/%s v%u - %s", DEVICE(0), RemoveIllegalCharacters(get_name(titleID, false)), get_version(titleID), ((isDLC && change_region) ? GetASCII((low & 0xFFFFFF00) | region) : GetASCII(low)));
+						if (ent[cline].function == TYPE_SYSTITLE)
+						{
+							snprintf(dump_path, MAX_CHARACTERS(dump_path), "%s:/YABDM/WAD/%s v%u - %s", DEVICE(0), RemoveIllegalCharacters(ent[cline].titlename), get_version(titleID), GetASCII(low));
+						} else {
+							ret = get_name(titleID, false);
+							if (ret >= 0) snprintf(dump_path, MAX_CHARACTERS(dump_path), "%s:/YABDM/WAD/%s v%u - %s", DEVICE(0), RemoveIllegalCharacters(titlename), get_version(titleID), ((isDLC && change_region) ? GetASCII((low & 0xFFFFFF00) | region) : GetASCII(low)));
+						}
 					} else {
 						snprintf(dump_path, MAX_CHARACTERS(dump_path), "%s:/YABDM/WAD/Homebrew Channel - AF1BF516", DEVICE(0));
 					}
@@ -3000,31 +3052,36 @@ void dump_menu(char *cpath, int cline, dirent_t *ent)
 					}
 				}
 				
-				if (ftik && ftmd)
+				if (ret >= 0)
 				{
-					strncat(dump_path, " (ftmd+ftik).wad", 16);
-				} else
-				if (!ftik && ftmd)
-				{
-					strncat(dump_path, " (ftmd).wad", 11);
-				} else
-				if (ftik && !ftmd)
-				{
-					strncat(dump_path, " (ftik).wad", 11);
-				} else {
-					strncat(dump_path, ".wad", 4);
-				}
-				
-				s32 ret = Wad_Dump(titleID, dump_path);
-				if (ret < 0)
-				{
-					printf("\nError dumping title to WAD file!");
-				} else {
-					logfile("WAD dump complete!\r\n");
+					if (ftik && ftmd)
+					{
+						strncat(dump_path, " (ftmd+ftik).wad", 16);
+					} else
+					if (!ftik && ftmd)
+					{
+						strncat(dump_path, " (ftmd).wad", 11);
+					} else
+					if (ftik && !ftmd)
+					{
+						strncat(dump_path, " (ftik).wad", 11);
+					} else {
+						strncat(dump_path, ".wad", 4);
+					}
 					
-					resetscreen();
-					printheadline();
-					printf("WAD dump complete! Output file:\n\n\t%s", dump_path);
+					ret = Wad_Dump(titleID, dump_path);
+					if (ret < 0)
+					{
+						printf("\nError dumping title to WAD file!");
+					} else {
+						logfile("WAD dump complete!\r\n");
+						
+						resetscreen();
+						printheadline();
+						printf("WAD dump complete! Output file:\n\n\t%s", dump_path);
+					}
+				} else {
+					printf("\nError dumping title to WAD file!");
 				}
 			}
 			break;
@@ -3032,13 +3089,9 @@ void dump_menu(char *cpath, int cline, dirent_t *ent)
 			break;
 	}
 	
-	printf("\n\nPress any button to go back to the menu.");
-	fflush(stdout);
+	if (ret != -2) waitforbuttonpress();
 	
-	while(true)
-	{
-		if (DetectInput(DI_BUTTONS_DOWN) != 0) break;
-	}
+	return ret;
 }
 
 void sd_browser_ent_info(dirent_t* ent, int cline, int lcnt)
@@ -3062,8 +3115,9 @@ void sd_browser_ent_info(dirent_t* ent, int cline, int lcnt)
 	fflush(stdout);
 }
 
-void dump_menu_sd(char *cnt_path)
+s32 dump_menu_sd(char *cnt_path)
 {
+	s32 ret = 0;
 	logfile("\r\nCreating WAD...\r\n");
 	
 	resetscreen();
@@ -3080,53 +3134,55 @@ void dump_menu_sd(char *cnt_path)
 	{
 		printf("\nError opening '%s' for reading.\n", cnt_path);
 		logfile("\r\nError opening '%s' for reading.\r\n", cnt_path);
-		sleep(3);
-		return;
-	}
-	
-	char dump_path[100];
-	snprintf(dump_path, MAX_CHARACTERS(dump_path), "%s:/YABDM/WAD/%s - %.4s (content.bin)", DEVICE(0), RemoveIllegalCharacters(read_cntbin_name(cnt_bin, false)), cnt_path+22);
-	rewind(cnt_bin);
-	
-	if (ftik && ftmd)
-	{
-		strncat(dump_path, " (ftmd+ftik).wad", 16);
-	} else
-	if (!ftik && ftmd)
-	{
-		strncat(dump_path, " (ftmd).wad", 11);
-	} else
-	if (ftik && !ftmd)
-	{
-		strncat(dump_path, " (ftik).wad", 11);
+		ret = -1;
 	} else {
-		strncat(dump_path, ".wad", 4);
+		ret = read_cntbin_name(cnt_bin, false);
+		if (ret == -2)
+		{
+			fclose(cnt_bin);
+		} else {
+			rewind(cnt_bin);
+			
+			char dump_path[100];
+			snprintf(dump_path, MAX_CHARACTERS(dump_path), "%s:/YABDM/WAD/%s - %.4s (content.bin)", DEVICE(0), RemoveIllegalCharacters(titlename), cnt_path+22);
+			
+			if (ftik && ftmd)
+			{
+				strncat(dump_path, " (ftmd+ftik).wad", 16);
+			} else
+			if (!ftik && ftmd)
+			{
+				strncat(dump_path, " (ftmd).wad", 11);
+			} else
+			if (ftik && !ftmd)
+			{
+				strncat(dump_path, " (ftik).wad", 11);
+			} else {
+				strncat(dump_path, ".wad", 4);
+			}
+			
+			ret = Content_bin_Dump(cnt_bin, dump_path);
+			if (ret < 0)
+			{
+				printf("\nError dumping title to WAD file!");
+			} else {
+				logfile("WAD dump complete!\r\n");
+				
+				resetscreen();
+				printheadline();
+				printf("WAD dump complete! Output file:\n\n\t%s", dump_path);
+			}
+			
+			fclose(cnt_bin);
+		}
 	}
 	
-	s32 ret = Content_bin_Dump(cnt_bin, dump_path);
-	if (ret < 0)
-	{
-		printf("\nError dumping title to WAD file!");
-	} else {
-		logfile("WAD dump complete!\r\n");
-		
-		resetscreen();
-		printheadline();
-		printf("WAD dump complete! Output file:\n\n\t%s", dump_path);
-	}
+	if (ret != -2) waitforbuttonpress();
 	
-	fclose(cnt_bin);
-	
-	printf("\n\nPress any button to go back to the menu.");
-	fflush(stdout);
-	
-	while(true)
-	{
-		if (DetectInput(DI_BUTTONS_DOWN) != 0) break;
-	}
+	return ret;
 }
 
-void sd_browser()
+s32 sd_browser()
 {
 	s32 ret;
 	char tmp[64];
@@ -3139,8 +3195,8 @@ void sd_browser()
 	if (!SDmnt)
 	{
 		printf("Error: SD card is not mounted!");
-		sleep(3);
-		return;
+		waitforbuttonpress();
+		return -1;
 	}
 	
 	printf("Reading directory info into memory, please wait...");
@@ -3163,9 +3219,9 @@ void sd_browser()
 				break;
 		}
 		
-		usleep(3000000);
+		waitforbuttonpress();
 		
-		return;
+		return ((ret == -3) ? -2 : ret);
 	}
 	
 	FILE *f;
@@ -3183,7 +3239,16 @@ void sd_browser()
 			{
 				cntbin_num++;
 				cntbin_exists[i] = true;
-				snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), read_cntbin_name(f, true));
+				
+				ret = read_cntbin_name(f, true);
+				if (ret == -2)
+				{
+					fclose(f);
+					free(ent);
+					return ret;
+				}
+				
+				snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), titlename);
 				fclose(f);
 			} else {
 				cntbin_exists[i] = false;
@@ -3198,8 +3263,8 @@ void sd_browser()
 		free(ent);
 		logfile("\r\nError: couldn't find any content.bin file!");
 		printf("\n\nError: couldn't find any content.bin file!");
-		usleep(3000000);
-		return;
+		waitforbuttonpress();
+		return -1;
 	} else
 	if (cntbin_num < lcnt)
 	{
@@ -3223,8 +3288,8 @@ void sd_browser()
 			printf("\n\nError reallocating memory block.");
 			
 			free(ent);
-			usleep(3000000);
-			return;
+			waitforbuttonpress();
+			return -2;
 		} else {
 			lcnt = cntbin_num;
 		}
@@ -3301,7 +3366,10 @@ void sd_browser()
 			if (ent[cline].type == DIRENT_T_DIR)
 			{
 				snprintf(tmp, MAX_CHARACTERS(tmp), "%s/%s/content.bin", SD_ROOT_DIR, ent[cline].name);
-				dump_menu_sd(tmp);
+				
+				ret = dump_menu_sd(tmp);
+				if (ret == -2) break;
+				
 				sd_browser_ent_info(ent, cline, lcnt);
 			}
 		}
@@ -3320,18 +3388,21 @@ void sd_browser()
 		/* Chicken out */
 		if (pressed == WPAD_BUTTON_HOME)
 		{
-			printf("\nExiting...");
-			free(ent);
-			goodbye();
+			ret = -2;
+			break;
 		}
 	}
 	
 	free(ent);
+	return ret;
 }
 
-void create_name_list(char cpath[ISFS_MAXPATH + 1], dirent_t* ent, int lcnt)
+s32 create_name_list(char cpath[ISFS_MAXPATH + 1], dirent_t* ent, int lcnt)
 {
-	if (lcnt == 0) return;
+	if (lcnt == 0) return -1;
+	
+	s32 ret;
+	char some[ISFS_MAXPATH + 1];
 	
 	int i;
 	for (i = 0; i < lcnt; i++)
@@ -3444,34 +3515,23 @@ void create_name_list(char cpath[ISFS_MAXPATH + 1], dirent_t* ent, int lcnt)
 					break;
 			}
 		} else
-		if (ent[i].function == TYPE_SAVEDATA)
+		if ((ent[i].function == TYPE_SAVEDATA) || (ent[i].function == TYPE_TITLE) || (ent[i].function == TYPE_SYSTITLE) || (ent[i].function == TYPE_GAMECHAN) || (ent[i].function == TYPE_DLC))
 		{
-			snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), get_name(TITLE_ID(0x00010000, strtoll(ent[i].name, NULL, 16)), true));
-		} else
-		if (ent[i].function == TYPE_TITLE)
-		{
-			snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), get_name(TITLE_ID(0x00010001, strtoll(ent[i].name, NULL, 16)), true));
-		} else
-		if (ent[i].function == TYPE_SYSTITLE)
-		{
-			snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), get_name(TITLE_ID(0x00010002, strtoll(ent[i].name, NULL, 16)), false));
-		} else
-		if (ent[i].function == TYPE_GAMECHAN)
-		{
-			snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), get_name(TITLE_ID(0x00010004, strtoll(ent[i].name, NULL, 16)), true));
-		} else
-		if (ent[i].function == TYPE_DLC)
-		{
-			snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), get_name(TITLE_ID(0x00010005, strtoll(ent[i].name, NULL, 16)), true));
+			snprintf(some, MAX_CHARACTERS(some), "%s/%s", cpath, ent[i].name);
+			ret = get_name(copy_id(some), ((ent[i].function == TYPE_SYSTITLE) ? false : true));
+			if (ret == -2) return ret;
+			snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), titlename);
 		} else
 		if (ent[i].function == TYPE_OTHER)
 		{
 			snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), (ent[i].type == DIRENT_T_DIR ? "Directory" : "File"));
 		}
 	}
+	
+	return 0;
 }
 
-void yabdm_loop(char *lpath)
+void yabdm_loop()
 {
 	/* Get Console Language */
 	lang = CONF_GetLanguage();
@@ -3484,7 +3544,7 @@ void yabdm_loop(char *lpath)
 	{
 		printf("\n\nError loading '/shared1/content.map', size = 0.");
 		logfile("\r\nError loading '/shared1/content.map', size = 0.");
-		goodbye();
+		return;
 	}
 	
 	content_map_items = content_map_size/sizeof(map_entry_t);
@@ -3496,10 +3556,20 @@ void yabdm_loop(char *lpath)
 	u32 pressed, lcnt = 0, cline = 0;
 	
 	snprintf(cpath, MAX_CHARACTERS(cpath), ROOT_DIR);
-	getdir_info(cpath, &ent, &lcnt);
+	ret = getdir_info(cpath, &ent, &lcnt);
+	if (ret < 0) 
+	{
+		if (ent) free(ent);
+		return;
+	}
 	
 	/* Create name list - Speeds up directory browsing */
-	create_name_list(cpath, ent, lcnt);
+	ret = create_name_list(cpath, ent, lcnt);
+	if (ret < 0)
+	{
+		free(ent);
+		return;
+	}
 	
 	/* Show dir entries */
 	browser(cpath, ent, cline, lcnt);
@@ -3566,22 +3636,6 @@ void yabdm_loop(char *lpath)
 			}
 		}
 		
-		/* Enter parent dir */
-		if (pressed == WPAD_BUTTON_B)
-		{
-			if (strlen(cpath) > 6)
-			{
-				for (i = strlen(cpath); cpath[i] != '/'; i--);
-				
-				cpath[i] = 0;
-				cline = 0;
-				
-				getdir_info(cpath, &ent, &lcnt);
-				create_name_list(cpath, ent, lcnt);
-				browser(cpath, ent, cline, lcnt);
-			}
-		}
-		
 		/* Enter dir */
 		if (pressed == WPAD_BUTTON_A)
 		{
@@ -3592,12 +3646,36 @@ void yabdm_loop(char *lpath)
 				snprintf(cpath, MAX_CHARACTERS(cpath), "%s/%s", tmp, ent[cline].name);
 				
 				ret = getdir_info(cpath, &ent, &lcnt);
-				if (ret == 0)
+				if (ret >= 0)
 				{
 					cline = 0;
-					create_name_list(cpath, ent, lcnt);
+					ret = create_name_list(cpath, ent, lcnt);
+					if (ret == -2) break;
 				} else {
 					lcnt = 0;
+				}
+				
+				browser(cpath, ent, cline, lcnt);
+			}
+		}
+		
+		/* Enter parent dir */
+		if (pressed == WPAD_BUTTON_B)
+		{
+			if (strlen(cpath) > 6)
+			{
+				for (i = strlen(cpath); cpath[i] != '/'; i--);
+				cpath[i] = 0;
+				
+				ret = getdir_info(cpath, &ent, &lcnt);
+				if (ret >= 0)
+				{
+					cline = 0;
+					ret = create_name_list(cpath, ent, lcnt);
+					if (ret == -2) break;
+				} else {
+					/* Fatal error */
+					break;
 				}
 				
 				browser(cpath, ent, cline, lcnt);
@@ -3609,7 +3687,9 @@ void yabdm_loop(char *lpath)
 		{
 			if (lcnt != 0 && strlen(cpath) == 15)
 			{
-				dump_menu(cpath, cline, ent);
+				ret = dump_menu(cpath, cline, ent);
+				if (ret == -2) break;
+				
 				browser(cpath, ent, cline, lcnt);
 			}
 		}
@@ -3624,32 +3704,26 @@ void yabdm_loop(char *lpath)
 		/* Switch to content.bin conversion */
 		if (pressed == WPAD_BUTTON_PLUS)
 		{
-			sd_browser();
+			ret = sd_browser();
+			if (ret == -2) break;
+			
 			browser(cpath, ent, cline, lcnt);
 		}
 		
-		/* Device menu */
+		/* Settings menu */
 		if (pressed == WPAD_BUTTON_MINUS)
 		{
-			Device_Menu(true);
-			browser(cpath, ent, cline, lcnt);
-		}
-		
-		/* Update application */
-		if (pressed == (WPAD_BUTTON_A | WPAD_BUTTON_B))
-		{
-			UpdateYABDM(lpath);
+			ret = Settings_Menu();
+			if (ret == -2) break;
+			
 			browser(cpath, ent, cline, lcnt);
 		}
 		
 		/* Chicken out */
-		if (pressed == WPAD_BUTTON_HOME)
-		{
-			free(ent);
-			break;
-		}
+		if (pressed == WPAD_BUTTON_HOME) break;
 	}
 	
+	free(ent);
 	printf("\nExiting...");
 	
 	/* End of app loop */

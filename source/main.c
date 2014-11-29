@@ -70,41 +70,29 @@ int main(int argc, char* argv[])
 	}
 	
 	ret = ahbprot_menu();
-	if (ret < 0)
+	if (ret >= 0)
 	{
-		ret = ios_selectionmenu(236);
-		if (ret > 0)
+		/* Initialize NAND FS */
+		ISFS_Initialize();
+		
+		/* Mount available storage devices */
+		ret = Mount_Devices();
+		if (ret >= 0)
 		{
-			printf("\t- Reloading to IOS%d... ", ret);
-			WUPC_Shutdown();
-			WPAD_Shutdown();
-			IOS_ReloadIOS(ret);
-			sleep(2);
-			PAD_Init();
-			WUPC_Init();
-			WPAD_Init();
-			WPAD_SetDataFormat(WPAD_CHAN_0, WPAD_FMT_BTNS_ACC_IR);
-			printf("done.\n\n");
-		} else
-		if (ret == 0)
-		{
-			printf("\t- Proceeding without IOS reload...\n\n");
-		} else {
-			goodbye();
+			/* Copy launch path */
+			if (argv[0] != NULL) snprintf(launch_path, MAX_CHARACTERS(launch_path), argv[0]);
+			
+			/* Main app loop */
+			yabdm_loop();
 		}
 	}
 	
-	/* Initialize NAND FS */
-	ISFS_Initialize();
-	
-	/* Mount available storage devices */
-	Mount_Devices();
-	
-	/* Main app loop */
-	yabdm_loop(argv[0]);
-	
 	/* Unmount storage devices (including NAND FS) and exit */
-	goodbye();
+	fflush(stdout);
+	if (cm) free(cm);
+	ISFS_Deinitialize();
+	Unmount_Devices();
+	Reboot();
 	
 	return 0;
 }

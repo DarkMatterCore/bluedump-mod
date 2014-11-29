@@ -262,44 +262,47 @@ s32 FileUpdate(char *path, bool is_dol)
 
 bool CheckLatestVersion(float cur_ver)
 {
-	s32 ret = 0;
-	u32 cnt, len, blksize = NETWORK_BLOCKSIZE;
-	
-	printf("\nChecking if we are already running the latest version...\n");
-	logfile("Getting \"%s%s\" (version info)... ", NETWORK_HOSTNAME, NETWORK_VERSION_PATH);
-	
-	len = network_request(NETWORK_VERSION_PATH, NETWORK_HOSTNAME);
-	if (len < 0) return len;
-	
-	logfile("File length: %d bytes.\r\n", len);
-	
-	for (cnt = 0; cnt < len; cnt += blksize)
+	if (latest_ver == 0.0f)
 	{
-		if (blksize > len - cnt) blksize = len - cnt;
+		s32 ret = 0;
+		u32 cnt, len, blksize = NETWORK_BLOCKSIZE;
 		
-		ret = network_read(fileBuf, blksize);
-		if (ret != blksize)
+		printf("\nChecking if we are already running the latest version...\n");
+		logfile("Getting \"%s%s\" (version info)... ", NETWORK_HOSTNAME, NETWORK_VERSION_PATH);
+		
+		len = network_request(NETWORK_VERSION_PATH, NETWORK_HOSTNAME);
+		if (len < 0) return len;
+		
+		logfile("File length: %d bytes.\r\n", len);
+		
+		for (cnt = 0; cnt < len; cnt += blksize)
 		{
-			ret = -1;
-			printf("Error downloading data.\n");
-			logfile("Error downloading data.\r\n");
-			break;
+			if (blksize > len - cnt) blksize = len - cnt;
+			
+			ret = network_read(fileBuf, blksize);
+			if (ret != blksize)
+			{
+				ret = -1;
+				printf("Error downloading data.\n");
+				logfile("Error downloading data.\r\n");
+				break;
+			}
 		}
+		
+		if (ret < 0) return false;
+		
+		sscanf((char*)fileBuf, "#ifndef %*s #define %*s #include %*s #include %*s #include %*s #include %*s #include %*s #define VERSION \"%f\"", &latest_ver);
 	}
-	
-	if (ret < 0) return false;
-	
-	sscanf((char*)fileBuf, "#ifndef %*s #define %*s #include %*s #include %*s #include %*s #include %*s #include %*s #define VERSION \"%f\"", &latest_ver);
 	
 	return (latest_ver > cur_ver);
 }
 
-void UpdateYABDM(char *launch_path)
+void UpdateYABDM(char *lpath)
 {
 	resetscreen();
 	printheadline();
 	
-	if (launch_path == NULL)
+	if (lpath == NULL)
 	{
 		printf("Sorry, your launch path is empty.\n");
 		printf("The update procedure cannot be performed.\n");
@@ -307,20 +310,20 @@ void UpdateYABDM(char *launch_path)
 		
 		logfile("\r\n[UPDATEYABDM] Error: launch path is empty!\r\n");
 	} else
-	if ((strnicmp(launch_path, "sd:", 3) != 0) && (strnicmp(launch_path, "usb:", 4) != 0))
+	if ((strnicmp(lpath, "sd:", 3) != 0) && (strnicmp(lpath, "usb:", 4) != 0))
 	{
 		printf("\nThe launch path is invalid.\n");
 		printf("The update procedure cannot be performed.\n");
 		printf("Did you launch the application using Wiiload?");
 		
-		logfile("\r\n[UPDATEYABDM] Error: launch path \"%s\" is invalid!\r\n", launch_path);
+		logfile("\r\n[UPDATEYABDM] Error: launch path \"%s\" is invalid!\r\n", lpath);
 	} else {
 		s32 ret;
 		
 		/* Parse the launch directory */
 		char path[MAXPATHLEN] = {0};
-		char *first_slash = strrchr(launch_path, '/');
-		if (first_slash != NULL) strncpy(path, launch_path, first_slash - launch_path + 1);
+		char *first_slash = strrchr(lpath, '/');
+		if (first_slash != NULL) strncpy(path, lpath, first_slash - lpath + 1);
 		
 		printf("Launch path: \"%s\".\n", path);
 		logfile("\r\n[UPDATEYABDM] Launch path: %s.\r\n", path);
@@ -369,10 +372,5 @@ void UpdateYABDM(char *launch_path)
 		}
 	}
 	
-	printf("\n\nPress any button to go back to the menu.");
-	
-	while(true)
-	{
-		if (DetectInput(DI_BUTTONS_DOWN) != 0) break;
-	}
+	waitforbuttonpress();
 }
