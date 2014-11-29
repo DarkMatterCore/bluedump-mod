@@ -8,6 +8,7 @@
 #include <ogc/usbstorage.h>
 
 #include "tools.h"
+#include "net.h"
 
 extern DISC_INTERFACE __io_usbstorage;
 
@@ -43,6 +44,14 @@ u32 __fwrite(const void *src, u32 size, u32 cnt, FILE *out)
 	WiiDiscLight(false);
 	
 	return ret;
+}
+
+bool is_empty(void *buf, u32 size)
+{
+    u8 *zero = calloc(size, 1);
+	bool i = (memcmp(zero, buf, size) == 0);
+	free(zero);
+    return i;
 }
 
 void Reboot()
@@ -124,6 +133,17 @@ u32 DetectInput(u8 DownOrHeld)
 	}
 	
 	return pressed;
+}
+
+void waitforbuttonpress()
+{
+	printf("\n\nPress any button to go back to the menu.");
+	fflush(stdout);
+	
+	while(true)
+	{
+		if (DetectInput(DI_BUTTONS_DOWN) != 0) break;
+	}
 }
 
 void Init_Console()
@@ -217,14 +237,54 @@ void Con_ClearLine()
 	fflush(stdout);
 }
 
+bool PriiloaderCheck(u64 id)
+{
+	if (TITLE_UPPER(id) == 1 && TITLE_LOWER(id) == 2)
+	{
+		char pl_tmd[ISFS_MAXPATH];
+		snprintf(pl_tmd, MAX_CHARACTERS(pl_tmd), "/title/00000001/00000002/content/title_or.tmd");
+		s32 cfd = ISFS_Open(pl_tmd, ISFS_OPEN_READ);
+		if (cfd >= 0)
+		{
+			ISFS_Close(cfd);
+			printf("Priiloader detected in System Menu!\n");
+			logfile("Priiloader detected in System Menu!\r\n");
+			return true;
+		}
+	}
+	
+	return false;
+}
+
+bool IsPriiloaderCnt(u16 cid)
+{
+	char priiloader_cnt[ISFS_MAXPATH];
+	snprintf(priiloader_cnt, MAX_CHARACTERS(priiloader_cnt), "/title/00000001/00000002/content/1%07x.app", cid);
+	s32 cfd = ISFS_Open(priiloader_cnt, ISFS_OPEN_READ);
+	if (cfd >= 0)
+	{
+		ISFS_Close(cfd);
+		printf("Priiloader content detected!\n");
+		logfile("Priiloader content detected! Original System Menu content file: 1%07x.app.\r\n", cid);
+		return true;
+	}
+	
+	return false;
+}
+
 s32 Init_SD()
 {
 	fatUnmount("sd");
 	
 	__io_wiisd.shutdown();
 	
-	if (!fatMountSimple("sd", &__io_wiisd)) return -1;
+	if (!fatMountSimple("sd", &__io_wiisd))
+	{
+		SDmnt = false;
+		return -1;
+	}
 	
+	SDmnt = true;
 	return 0;
 }
 
@@ -257,9 +317,11 @@ s32 Init_USB()
 			}
 		}
 		
+		USBmnt = false;
 		return -1;
 	}
 	
+	USBmnt = true;
 	return 0;
 }
 
@@ -278,61 +340,31 @@ void Unmount_Devices()
 	if (USBmnt) Close_USB();
 }
 
-void goodbye()
-{
-	fflush(stdout);
-	if (cm) free(cm);
-	ISFS_Deinitialize();
-	Unmount_Devices();
-	Reboot();
-}
-
-void Mount_Devices()
+int Mount_Devices()
 {
 	int ret;
-	u32 pressed;
-	
 	printf("Mounting available storage devices...\n");
 	
 	printf("\n\t- SD Card: ");
 	ret = Init_SD();
-	if (ret < 0)
-	{
-		printf("FAILED.\n");
-		SDmnt = false;
-	} else {
-		printf("OK.\n");
-		SDmnt = true;
-	}
+	printf("%s.\n", ((ret < 0) ? "FAILED" : "OK"));
 	
 	printf("\n\t- USB drive: ");
 	ret = Init_USB();
-	if (ret < 0)
-	{
-		printf("FAILED.\n");
-		USBmnt = false;
-	} else {
-		printf("OK.\n");
-		USBmnt = true;
-	}
+	printf("%s.\n", ((ret < 0) ? "FAILED" : "OK"));
 	
-	if (SDmnt && !USBmnt)
-	{
-		isSD = true;
-		printf("\nThe SD Card will be used as the storage device.");
-		sleep(2);
-	} else
-	if (!SDmnt && USBmnt)
-	{
-		isSD = false;
-		printf("\nThe USB drive will be used as the storage device.");
-		sleep(2);
-	} else
 	if (!SDmnt && !USBmnt)
 	{
-		printf("\nNo device detected. Good bye...");
-		goodbye();
+		printf("\nNo device detected...");
+		return -2;
+	} else
+	if ((SDmnt && !USBmnt) || (!SDmnt && USBmnt))
+	{
+		isSD = ((SDmnt && !USBmnt) ? true : false);
+		printf("\nThe %s will be used as the storage device.", (isSD ? "SD card" : "USB drive"));
+		sleep(2);
 	} else {
+		u32 pressed;
 		printf("\nPress A to use the SD Card.\n");
 		printf("Press B to use the USB device.");
 		
@@ -353,9 +385,11 @@ void Mount_Devices()
 			}
 		}
 	}
+	
+	return 0;
 }
 
-void Device_Menu(bool swap)
+int Device_Menu(bool swap)
 {
 	u32 pressed;
 	int i, selection = 0;
@@ -367,13 +401,8 @@ void Device_Menu(bool swap)
 		printheadline();
 		
 		printf("Current device: %s.\n\n", DEVICE(1));
-		printf("Select the new output device.");
-		if (swap)
-		{
-			printf(" Press B to swap/remount the storage devices.\n\n");
-		} else {
-			printf(" Device swapping is not allowed.\n\n");
-		}
+		printf("Select the new output device. ");
+		printf("%s.\n\n", (swap ? "Press B to swap/remount the storage devices" : "Device swapping is not allowed"));
 		
 		for (i = 0; i <= 1; i++)
 		{
@@ -400,12 +429,11 @@ void Device_Menu(bool swap)
 				if (debug_file)
 				{
 					fclose(debug_file);
-					
 					logfile_header();
 				}
 			}
 			
-			return;
+			return 0;
 		}
 		
 		if (pressed == WPAD_BUTTON_B)
@@ -429,79 +457,62 @@ void Device_Menu(bool swap)
 		if (pressed == WPAD_BUTTON_A) break;
 	}
 	
-	Mount_Devices();
+	int ret = Mount_Devices();
+	if (ret < 0) return ret;
 	
 	logfile_header();
+	return 0;
 }
 
-int ahbprot_menu()
+int Settings_Menu()
 {
-	s32 ret;
+	int ret = 0;
 	u32 pressed;
-
-	/* HW_AHBPROT check */
-	if (AHBPROT_DISABLED)
+	int i, selection = 0;
+	char *menu_opt[2] = { "Device menu", "Update application" };
+	
+	while(true)
 	{
-		printf("Hardware protection is disabled!\n");
-		printf("Current IOS: %u.\n\n", IOS_GetVersion());
+		resetscreen();
+		printheadline();
 		
-		printf("Press A button to use full hardware access.\n");
-		printf("Press B button to reload to another IOS.\n");
-		printf("Press HOME or Start to exit.\n\n");
+		printf("Select an option. Press B to go back to the menu.\n\n");
 		
-		for(;;)
+		for (i = 0; i <= 1; i++)
 		{
-			pressed = DetectInput(DI_BUTTONS_DOWN);
-			
-			/* A button */
-			if (pressed == WPAD_BUTTON_A) break;
-			
-			/* B button */
-			if (pressed == WPAD_BUTTON_B)
-			{
-				resetscreen();
-				printheadline();
-				return -1;
-			}
-			
-			/* HOME/Start button */
-			if (pressed == WPAD_BUTTON_HOME)
-			{
-				printf("Exiting...");
-				goodbye();
-			}
+			printf("%s %s\n", ((selection == i) ? ARROW : "  "), menu_opt[i]);
 		}
 		
-		printf("Initializing IOS patches... ");
-		ret = IosPatch_RUNTIME(true, false, true, false);
-		if (ret < 0)
+		pressed = DetectInput(DI_BUTTONS_DOWN);
+		
+		if (pressed == WPAD_BUTTON_UP)
 		{
-			/* This is a very, very weird error */
-			
-			printf("ERROR!\n\n");
-			printf("\tUnable to load the initial patches. Maybe the loaded IOS isn't\n");
-			printf("\tvulnerable for an unknown reason.\n");
-			sleep(4);
-			printf("\tThis error is very uncommon. I already checked if the HW_AHBPROT\n");
-			printf("\tprotection was disabled. You should report this to me as soon as\n");
-			printf("\tyou can.\n");
-			sleep(4);
-			printf("\tI'll let you reload to another IOS instead of kicking you out\n");
-			printf("\tto the loader...");
-			sleep(4);
-			
-			resetscreen();
-			printheadline();
-			
-			return -1;
+			if (selection > 0) selection--;
 		}
 		
-		printf("OK!\n\n");
-	} else {
-		return -1;
+		if (pressed == WPAD_BUTTON_DOWN)
+		{
+			if (selection < 1) selection++;
+		}
+		
+		if (pressed == WPAD_BUTTON_A)
+		{
+			if (selection == 0)
+			{
+				/* Device menu */
+				ret = Device_Menu(true);
+			} else {
+				/* Update application */
+				UpdateYABDM(launch_path);
+			}
+			
+			break;
+		}
+		
+		if (pressed == WPAD_BUTTON_B) break;
 	}
 	
-	return 0;
+	return ret;
 }
 
 s32 __u8Cmp(const void *a, const void *b)
@@ -512,11 +523,13 @@ s32 __u8Cmp(const void *a, const void *b)
 u8 *get_ioslist(u32 *cnt)
 {
 	u64 *buf = 0;
-	s32 i, res;
-	u32 tcnt = 0, icnt;
+	s32 i, k = 0, res;
+	u32 tcnt = 0, icnt = 0;
 	u8 *ioses = NULL;
 	
-	// Get stored IOS versions.
+	bool skip_title;
+	
+	/* Get stored IOS versions */
 	res = ES_GetNumTitles(&tcnt);
 	if (res < 0)
 	{
@@ -527,7 +540,7 @@ u8 *get_ioslist(u32 *cnt)
 	buf = memalign(32, sizeof(u64) * tcnt);
 	if (!buf) 
 	{
-		printf("\t- Error allocating memory buffer!\n");
+		printf("\t- Error allocating titlelist memory buffer!\n");
 		return 0;
 	}
 	
@@ -538,18 +551,90 @@ u8 *get_ioslist(u32 *cnt)
 		free(buf);
 		return 0;
 	}
-
-	icnt = 0;
-	for(i = 0; i < tcnt; i++)
+	
+	for (i = 0; i < tcnt; i++)
 	{
-		if(*((u32 *)(&(buf[i]))) == 1 && (u32)buf[i] > 2 && (u32)buf[i] < 0x100)
+		/* Skip BC, MIOS, System Menu, BootMii IOS, BC-NAND, BC-WFS and stub IOSses */
+		if ((TITLE_UPPER(buf[i - k]) == 1) && (TITLE_LOWER(buf[i - k]) > 2) && (TITLE_LOWER(buf[i - k]) < 0xFE))
+		{
+			u32 tmdSize = 0;
+			tmd *iosTMD = NULL;
+			signed_blob *iosTMDBuffer = NULL;
+			
+			/* Get stored TMD size */
+			res = ES_GetStoredTMDSize(buf[i - k], &tmdSize);
+			if (res < 0)
+			{
+				printf("\t- ES_GetStoredTMDSize: Error! (result = %d / IOS%d).\n", res, ((u8)buf[i - k]));
+				break;
+			}
+			
+			iosTMDBuffer = (signed_blob*)memalign(32, (tmdSize+31)&(~31));
+			if (!iosTMDBuffer)
+			{
+				res = -1;
+				printf("\t- Error allocating IOS%d TMD buffer (size = %d bytes).\n", ((u8)buf[i - k]), tmdSize);
+				break;
+			}
+			
+			memset(iosTMDBuffer, 0, tmdSize);
+			
+			/* Get stored TMD */
+			res = ES_GetStoredTMD(buf[i - k], iosTMDBuffer, tmdSize);
+			if (res < 0)
+			{
+				printf("\t- ES_GetStoredTMD: Error! (result = %d / IOS%d).\n", res, ((u8)buf[i - k]));
+				free(iosTMDBuffer);
+				break;
+			}
+			
+			iosTMD = (tmd*)SIGNATURE_PAYLOAD(iosTMDBuffer);
+			
+			/* Calculate title size */
+			int j;
+			u32 titleSize = 0;
+			for (j = 0; j < iosTMD->num_contents; j++)
+			{
+				tmd_content *content = &iosTMD->contents[j];
+				
+				/* Add content size */
+				titleSize += content->size;
+			}
+			
+			/* Check if this IOS is a stub */
+			skip_title = ((titleSize < 0x100000) ? true : false);
+			
+			free(iosTMDBuffer);
+		} else {
+			skip_title = true;
+		}
+		
+		if (!skip_title)
 		{
 			icnt++;
-			ioses = (u8 *)realloc(ioses, sizeof(u8) * icnt);
-			ioses[icnt - 1] = (u8)buf[i];
+		} else {
+			/* Move around memory blocks */
+			if ((tcnt - 1) > i)
+			{
+				memmove(&(buf[i - k]), &(buf[i - k + 1]), (sizeof(u64) * (tcnt - i - 1)));
+				k++;
+			}
 		}
 	}
-
+	
+	if (res < 0)
+	{
+		free(buf);
+		return 0;
+	}
+	
+	if (realloc(buf, sizeof(u64) * icnt) == NULL)
+	{
+		printf("\t- Error reallocating titlelist memory block!\n");
+		free(buf);
+		return 0;
+	}
+	
 	ioses = (u8 *)malloc(sizeof(u8) * icnt);
 	if (!ioses)
 	{
@@ -558,21 +643,12 @@ u8 *get_ioslist(u32 *cnt)
 		return 0;
 	}
 	
-	icnt = 0;
-	
-	for (i = 0; i < tcnt; i++)
-	{
-		if(*((u32 *)(&(buf[i]))) == 1 && (u32)buf[i] > 2 && (u32)buf[i] < 0x100)
-		{
-			icnt++;
-			ioses[icnt - 1] = (u8)buf[i];
-		}
-	}
+	for (i = 0; i < icnt; i++) ioses[i] = (u8)buf[i];
 	
 	free(buf);
 	qsort(ioses, icnt, 1, __u8Cmp);
-
 	*cnt = icnt;
+	
 	return ioses;
 }
 
@@ -595,10 +671,7 @@ int ios_selectionmenu(int default_ios)
 			break;
 		}
 		
-		if (list[i] == IOS_GetVersion())
-		{
-			selection = i;
-		}
+		if (list[i] == IOS_GetVersion()) selection = i;
 	}
 	
 	while (true)
@@ -637,22 +710,121 @@ int ios_selectionmenu(int default_ios)
 			}
 		}
 		
-		if (pressed == WPAD_BUTTON_A) break;
+		if (pressed == WPAD_BUTTON_A)
+		{
+			selection = list[selection];
+			break;
+		}
 		
-		if (pressed == WPAD_BUTTON_B) return 0;
+		if (pressed == WPAD_BUTTON_B)
+		{
+			selection = 0;
+			break;
+		}
 		
 		if (pressed == WPAD_BUTTON_HOME)
 		{
 			printf("Exiting...");
-			free(list);
-			goodbye();
+			selection = -1;
+			break;
 		}
 	}
 	
-	selection = list[selection];
 	free(list);
-	
 	return selection;
+}
+
+int ahbprot_menu()
+{
+	s32 ret;
+	u32 pressed;
+
+	/* HW_AHBPROT check */
+	if (AHBPROT_DISABLED)
+	{
+		printf("Hardware protection is disabled!\n");
+		printf("Current IOS: %u.\n\n", IOS_GetVersion());
+		
+		printf("Press A button to use full hardware access.\n");
+		printf("Press B button to reload to another IOS.\n");
+		printf("Press HOME or Start to exit.\n\n");
+		
+		for (;;)
+		{
+			pressed = DetectInput(DI_BUTTONS_DOWN);
+			
+			/* A button */
+			if (pressed == WPAD_BUTTON_A)
+			{
+				printf("Initializing IOS patches... ");
+				ret = IosPatch_RUNTIME(true, false, true, false);
+				if (ret < 0)
+				{
+					/* This is a very, very weird error */
+					printf("ERROR!\n\n");
+					printf("\tUnable to load the initial patches. Maybe the loaded IOS isn't\n");
+					printf("\tvulnerable for an unknown reason.\n");
+					sleep(4);
+					printf("\tThis error is very uncommon. I already checked if the hardware\n");
+					printf("\tprotection was disabled. You should report this to me as soon as\n");
+					printf("\tyou can.\n");
+					sleep(4);
+					printf("\tI'll let you reload to another IOS instead of kicking you out\n");
+					printf("\tto the loader...");
+					sleep(4);
+				} else {
+					printf("OK!\n\n");
+				}
+				
+				break;
+			}
+			
+			/* B button */
+			if (pressed == WPAD_BUTTON_B)
+			{
+				ret = -1;
+				break;
+			}
+			
+			/* HOME/Start button */
+			if (pressed == WPAD_BUTTON_HOME)
+			{
+				printf("Exiting...");
+				return -1;
+			}
+		}
+	} else {
+		ret = -1;
+	}
+	
+	if (ret < 0)
+	{
+		resetscreen();
+		printheadline();
+		
+		ret = ios_selectionmenu(236);
+		if (ret > 0)
+		{
+			printf("\t- Reloading to IOS%d... ", ret);
+			WUPC_Shutdown();
+			WPAD_Shutdown();
+			IOS_ReloadIOS(ret);
+			sleep(2);
+			PAD_Init();
+			WUPC_Init();
+			WPAD_Init();
+			WPAD_SetDataFormat(WPAD_CHAN_0, WPAD_FMT_BTNS_ACC_IR);
+			printf("done.\n\n");
+		} else
+		if (ret == 0)
+		{
+			printf("\t- Proceeding without IOS reload...\n\n");
+		} else {
+			return ret;
+		}
+	}
+	
+	return 0;
 }
 
 void logfile(const char *format, ...)

@@ -7,7 +7,7 @@
 #include <runtimeiospatch.h>
 #include <malloc.h>
 
-#define VERSION "1.6"
+#define VERSION "1.7"
 
 // Values for DetectInput
 #define DI_BUTTONS_DOWN		0
@@ -19,6 +19,10 @@
 #define ARROW " \x10"
 #define DEVICE(x) (((x) == 0) ? (isSD ? "sd" : "usb") : (isSD ? "SD" : "USB"))
 #define MAX_CHARACTERS(x) ((sizeof((x))) / (sizeof((x)[0]))) // Returns the number of elements in an array
+
+#define TITLE_UPPER(x)		((u32)((x) >> 32))
+#define TITLE_LOWER(x)		((u32)(x))
+#define TITLE_ID(x,y)		(((u64)(x) << 32) | (y))
 
 typedef struct map_entry
 {
@@ -33,19 +37,25 @@ size_t content_map_items;
 int lang;
 bool SDmnt, USBmnt, isSD, __debug, vwii, __wiilight;
 
+char launch_path[MAXPATHLEN];
+
 u32 __fread(void *out, u32 size, u32 cnt, FILE *src);
 u32 __fwrite(const void *src, u32 size, u32 cnt, FILE *out);
+bool is_empty(void *buf, u32 size);
+void Reboot();
 u32 DetectInput(u8 DownOrHeld);
+void waitforbuttonpress();
 void Init_Console();
 void printheadline();
 void set_highlight(bool highlight);
 void Con_ClearLine();
+bool PriiloaderCheck(u64 id);
+bool IsPriiloaderCnt(u16 cid);
 void Unmount_Devices();
-void goodbye();
-void Mount_Devices();
-void Device_Menu(bool swap);
+int Mount_Devices();
+int Device_Menu(bool swap);
+int Settings_Menu();
 int ahbprot_menu();
-int ios_selectionmenu(int default_ios);
 void logfile(const char *format, ...);
 void logfile_header();
 void hexdump_log(void *d, int len);

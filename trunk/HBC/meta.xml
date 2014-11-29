@@ -2,8 +2,8 @@
 	<app version="1">
 		<name>Yet Another BlueDump MOD (YABDM)</name>
 		<coder>nicksasa, DarkMatterCore</coder>
-		<version>v1.6</version>
-		<release_date>20141116211500</release_date>
+		<version>v1.7</version>
+		<release_date>20141128220000</release_date>
 		<short_description>Title and save manager</short_description>
 		<long_description>YABDM is a modification of BlueDump capable of dumping any type of title installed in your Wii console to a WAD file in a SD Card or an USB storage device. It can also backup and restore savegames in their unencrypted form.
 
@@ -28,6 +28,15 @@ The same things applies if you want to backup savedata for a VC title: just go t
 * Excelsiior, for his libruntimeiospatch library, used to apply IOS patches at runtime.
 
 === Changelog ===
+
+YABDM v1.7 (November 28th, 2014 - DarkMatterCore):
+
+* The application's code flow was modified to remove the overuse of the exit function and to deal with unhandled memory exceptions. Thanks to this, the goodbye() function has now been removed, and only a single call to Reboot() is performed.
+* An additional settings menu has been implemented. It can be entered by pressing button -/L. There, you can either choose to switch storage devices through the Deviced Menu, or to update the application.
+* It is now verified if the console keys collected from the BootMii data are null (zero-filled) or belong to the console the application is being run on before using them.
+* Added compatibility with Priiloader. Thanks to this, the application can now generate valid System Menu WADs even if Priiloader has been installed.
+* LoadTikFromDevice() is now merged with GetTicket() (it should have been like this from the beginning).
+* The IOS selection menu now also skips BootMii IOS and stub IOSes.
 
 YABDM v1.6 (November 16th, 2014 - DarkMatterCore):
 
