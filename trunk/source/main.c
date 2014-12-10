@@ -87,9 +87,13 @@ int main(int argc, char* argv[])
 		}
 	}
 	
-	/* Unmount storage devices (including NAND FS) and exit */
+	printf("Exiting...");
 	fflush(stdout);
+	
+	/* Free content.map buffer */
 	if (cm) free(cm);
+	
+	/* Unmount storage devices (including NAND FS) and exit */
 	ISFS_Deinitialize();
 	Unmount_Devices();
 	Reboot();

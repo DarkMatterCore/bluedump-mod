@@ -5,8 +5,8 @@
  *                                                                             *
  * Modified by DarkMatterCore [PabloACZ] (2013-2014)                           *
  *                                                                             *
- * Distributed under the terms of the GNU General Public License (v2)          *
- * See http://www.gnu.org/licenses/gpl-2.0.txt for more info.                  *
+ * Distributed under the terms of the GNU General Public License (v3)          *
+ * See http://www.gnu.org/licenses/gpl-3.0.txt for more info.                  *
  *                                                                             *
  *******************************************************************************/
 
@@ -268,22 +268,31 @@ s32 getdir_info(char *path, dirent_t **ent, u32 *cnt)
 
 s32 __convertWiiString(char *str, u8 *data, u32 cnt)
 {
-	u32 i;
+	u32 i, j;
 	
-	for(i = 0; i < cnt; data += 2)
+	for (i = 0, j = 0; i < cnt; i += 2, j++)
 	{
-		u16 *chr = (u16*)data;
-		if (*chr == 0)
+		u16 *chr = (u16*)(&(data[i]));
+		if ((*chr == 0) || (i == 0 && *chr == 0x20))
 		{
 			break;
 		} else {
-			str[i] = *chr;
+			/* Some DLC names (like MEGA MAN 9) are stored like this, with 0xFF as the preceding byte */
+			/* It's necessary to add 0x20 (+32) to the character value to get its correct ASCII representation */
+			/* In these cases, only whitespaces (0x20) are stored using 0x00 as their preceding byte */
+			str[j] = (((*chr & 0xFF00) == 0xFF00) ? (*chr + 0x20) : *chr);
 		}
 		
-		i++;
+		/* Some devs apparently fill the rest of the space with whitespaces (look at Dead Space Extraction) */
+		/* Let's check that we're not copying them all over again */
+		if ((j > 0) && (str[j] == 0x20) && (str[j - 1] == 0x20))
+		{
+			j -= 1;
+			break;
+		}
 	}
-	str[i] = 0;
-
+	
+	str[j] = 0;
 	return 0;
 }
 
@@ -971,7 +980,7 @@ s32 GetCerts(FILE *f)
 {
 	if (cert_sys_size != 2560)
 	{
-		printf("Wrong certificate chain size! Exiting...");
+		printf("Wrong certificate chain size! ");
 		logfile("Wrong certificate chain size! Exiting...");
 		return -1;
 	}
@@ -1857,8 +1866,8 @@ s32 install_savedata(u64 titleID)
 	
 	if (!found)
 	{
-		printf("Couldn't find the savedata on the %s!\nPlease extract the savedata first.\n", (isSD ? "SD card" : "USB storage"));
-		logfile("\r\nCouldn't find the savedata on the %s!\r\n", (isSD ? "SD card" : "USB storage"));
+		printf("Couldn't find the savedata on the %s!\nPlease extract the savedata first.\n", DEVICE(1));
+		logfile("\r\nCouldn't find the savedata on the %s!\r\n", DEVICE(1));
 		return -1;
 	} else {
 		logfile("Savedata found: '%s'.\r\n", dir[i].name);
@@ -2077,8 +2086,6 @@ void browser(char cpath[ISFS_MAXPATH + 1], dirent_t* ent, int cline, int lcnt)
 	resetscreen();
 	printheadline();
 	
-	//logfile("\r\n\r\nBROWSER: Using Wii NAND. Inserted device: %s.\r\nPath: %s\r\n", (isSD ? "SD Card" : "USB Storage"), cpath);
-	
 	printf("[A] Confirm / Enter directory  [B] Cancel / Return to parent directory\n");
 	printf("[1/Y] Dump options  [2/X] Change view mode  [+/R] Content.bin conversion\n");
 	printf("[-/L] Additional settings  [HOME/Start] Exit\n\n");
@@ -2090,7 +2097,7 @@ void browser(char cpath[ISFS_MAXPATH + 1], dirent_t* ent, int cline, int lcnt)
 		printf("No files/directories found!");
 		printf("\nPress B to go back to the previous directory.");
 	} else {
-		for(i = (cline / 14)*14; i < lcnt && i < (cline / 14)*14+14; i++)
+		for (i = (cline / 13)*13; i < lcnt && i < (cline / 13)*13+13; i++)
 		{
 			if ((strncmp(cpath, "/title", 6) == 0 && strlen(cpath) == 6) || ent[i].function == TYPE_IOS)
 			{
@@ -2304,16 +2311,12 @@ s32 Wad_Dump(u64 id, char *path)
 		
 		if (cnt == 0) snprintf(footer_path, MAX_CHARACTERS(footer_path), "/title/%08x/%08x/content/%08x.app", TITLE_UPPER(id), TITLE_LOWER(id), content->cid);
 		
-		bool is_pl_cnt = false;
-		
 		logfile("Content type 0x%04x... ", content->type);
 		switch (content->type)
 		{
 			case 0x0001: // Normal
 			case 0x4001: // DLC
-				if (priiloader) is_pl_cnt = IsPriiloaderCnt(content->cid);
-				
-				ret = GetContent(wadout, id, (is_pl_cnt ? ((1 << 28) | content->cid) : ((u32)content->cid)), (u8*)key, content->index, (u32)content->size, content->hash);
+				ret = GetContent(wadout, id, ((priiloader && IsPriiloaderCnt(content->cid)) ? ((1 << 28) | content->cid) : ((u32)content->cid)), (u8*)key, content->index, (u32)content->size, content->hash);
 				if (content->type == 0x4001 && ret == -106)
 				{
 					ret = 0; // Nothing happened here, boy.
@@ -3100,14 +3103,12 @@ void sd_browser_ent_info(dirent_t* ent, int cline, int lcnt)
 	resetscreen();
 	printheadline();
 	
-	//logfile("\r\n\r\nSD_BROWSER: Using SD card. Inserted device: %s.\r\nPath: % s\r\n", (isSD ? "SD Card" : "USB Storage"), SD_ROOT_DIR);
-	
 	printf("[A] Convert selected title's content.bin file to WAD  [HOME/Start] Exit\n");
 	printf("[+/R] Return to the main browser screen  [-/L] Device menu\n\n");
 	
 	printf("Current device: %s. Path: %s\n\n", DEVICE(1), SD_ROOT_DIR);
 	
-	for (i = (cline / 15)*15; i < lcnt && i < (cline / 15)*15+15; i++)
+	for (i = (cline / 14)*14; i < lcnt && i < (cline / 14)*14+14; i++)
 	{
 		printf("%s %-12s - %s\n", (i == cline ? ARROW : "  "), ent[i].name, ent[i].titlename);
 	}
@@ -3724,7 +3725,5 @@ void yabdm_loop()
 	}
 	
 	free(ent);
-	printf("\nExiting...");
-	
-	/* End of app loop */
+	printf("\n");
 }

@@ -9,6 +9,8 @@
 
 #include "tools.h"
 #include "net.h"
+#include "mload/usb2storage.h"
+#include "mload/mload_init.h"
 
 extern DISC_INTERFACE __io_usbstorage;
 
@@ -272,101 +274,96 @@ bool IsPriiloaderCnt(u16 cid)
 	return false;
 }
 
-s32 Init_SD()
-{
-	fatUnmount("sd");
-	
-	__io_wiisd.shutdown();
-	
-	if (!fatMountSimple("sd", &__io_wiisd))
-	{
-		SDmnt = false;
-		return -1;
-	}
-	
-	SDmnt = true;
-	return 0;
-}
-
 void Close_SD()
 {
 	fatUnmount("sd");
 	__io_wiisd.shutdown();
 }
 
-s32 Init_USB()
+void Init_SD()
 {
-	fatUnmount("usb");
-	
-	bool isMounted = fatMountSimple("usb", &__io_usbstorage);
-	
-	if (!isMounted)
-	{
-		bool isInserted = __io_usbstorage.isInserted();
-		
-		if (isInserted)
-		{
-			int retry = 10;
-			
-			while (retry > 0)
-			{ 
-				isMounted = fatMountSimple("usb", &__io_usbstorage);
-				if (isMounted) return 0;
-				usleep(1000000);
-				retry--;
-			}
-		}
-		
-		USBmnt = false;
-		return -1;
-	}
-	
-	USBmnt = true;
-	return 0;
+	//Close_SD();
+	SDmnt = fatMountSimple("sd", &__io_wiisd);
+	printf("\n\t- SD Card: %s.", (SDmnt ? "OK" : "FAILED"));
 }
 
 void Close_USB()
 {
 	fatUnmount("usb");
-	__io_usbstorage.shutdown();
+	
+	if (isUSB2)
+	{
+		__io_usbstorage2.shutdown();
+	} else {
+		__io_usbstorage.shutdown();
+	}
+}
+
+void Init_USB()
+{
+	//Close_USB();
+	
+	printf("\n");
+	if (AHBPROT_DISABLED && !USB_PORT_CONNECTED)
+	{
+		USBmnt = false;
+	} else {
+		bool started = false;
+		isUSB2 = (IOS_GetVersion() >= 200);
+		
+		time_t tStart = time(0);
+		while ((time(0) - tStart) < 10) // 10 seconds timeout
+		{
+			Con_ClearLine();
+			printf("\t- USB drive: %.f...", difftime(time(0), tStart));
+			
+			if (isUSB2)
+			{
+				started = (__io_usbstorage2.startup() && __io_usbstorage2.isInserted());
+			} else {
+				started = (__io_usbstorage.startup() && __io_usbstorage.isInserted());
+			}
+			
+			if (started) break;
+			
+			usleep(50000);
+		}
+		
+		USBmnt = (started && fatMountSimple("usb", (isUSB2 ? &__io_usbstorage2 : &__io_usbstorage)));
+		Con_ClearLine();
+	}
+	
+	printf("\t- USB drive: %s.\n\n", (USBmnt ? "OK" : "FAILED"));
 }
 
 void Unmount_Devices()
 {
 	if (debug_file) fclose(debug_file);
-	
 	if (SDmnt) Close_SD();
-	
 	if (USBmnt) Close_USB();
 }
 
 int Mount_Devices()
 {
-	int ret;
-	printf("Mounting available storage devices...\n");
+	printf("\n\nMounting available storage devices...\n");
 	
-	printf("\n\t- SD Card: ");
-	ret = Init_SD();
-	printf("%s.\n", ((ret < 0) ? "FAILED" : "OK"));
-	
-	printf("\n\t- USB drive: ");
-	ret = Init_USB();
-	printf("%s.\n", ((ret < 0) ? "FAILED" : "OK"));
+	Init_SD();
+	Init_USB();
 	
 	if (!SDmnt && !USBmnt)
 	{
-		printf("\nNo device detected...");
+		printf("No device detected...");
 		return -2;
 	} else
 	if ((SDmnt && !USBmnt) || (!SDmnt && USBmnt))
 	{
-		isSD = ((SDmnt && !USBmnt) ? true : false);
-		printf("\nThe %s will be used as the storage device.", (isSD ? "SD card" : "USB drive"));
+		isSD = (SDmnt && !USBmnt);
+		printf("The %s will be used as the storage device.", (isSD ? "SD card" : "USB drive"));
 		sleep(2);
 	} else {
 		u32 pressed;
-		printf("\nPress A to use the SD Card.\n");
-		printf("Press B to use the USB device.");
+		printf("Press A to use the SD Card.\n");
+		printf("Press B to use the USB device.\n");
 		
 		while(true)
 		{
@@ -387,6 +384,31 @@ int Mount_Devices()
 	}
 	
 	return 0;
+}
+
+void KeepAccessRightsAndReload(int ios, bool verbose)
+{
+	/* There should be nothing to worry about if this fails, as long as the new IOS is patched */
+	if (verbose) printf("\t- Patching IOS%d to keep hardware access rights... ", IOS_GetVersion());
+	s32 ret = IosPatch_AHBPROT(false);
+	if (verbose) printf("%s.\n", (ret < 0 ? "FAILED" : "OK"));
+	
+	if (verbose) printf("\t- Reloading to IOS%d... ", ios);
+	WUPC_Shutdown();
+	WPAD_Shutdown();
+	IOS_ReloadIOS(ios);
+	//sleep(2);
+	PAD_Init();
+	WUPC_Init();
+	WPAD_Init();
+	WPAD_SetDataFormat(WPAD_CHAN_0, WPAD_FMT_BTNS_ACC_IR);
+	if (verbose) printf("done.");
+	
+	if (IsHermesIOS(ios))
+	{
+		mload_Init();
+		if (verbose) printf("\n\t- Hermes cIOS detected! ehcmodule loaded through mload.");
+	}
 }
 
 int Device_Menu(bool swap)
@@ -426,10 +448,12 @@ int Device_Menu(bool swap)
 			if ((selection == 0 && SDmnt && !isSD) || (selection == 1 && USBmnt && isSD))
 			{
 				isSD ^= 1;
+				
 				if (debug_file)
 				{
 					fclose(debug_file);
 					logfile_header();
+					logfile("Device changed from %s to %s.\r\n\r\n", (selection == 0 ? "USB" : "SD"), DEVICE(1));
 				}
 			}
 			
@@ -449,7 +473,7 @@ int Device_Menu(bool swap)
 	
 	printf("Swap the current storage devices if you want to use different ones.\n");
 	printf("Press A when you're done to mount them.\n");
-	printf("Otherwise, you can just remount the devices already connected.\n\n");
+	printf("Otherwise, you can just remount the devices already connected.");
 	
 	while(true)
 	{
@@ -457,62 +481,25 @@ int Device_Menu(bool swap)
 		if (pressed == WPAD_BUTTON_A) break;
 	}
 	
+	/* If the currently running IOS is a Waninkoko/d2x cIOS, we have to reload it before we can retry the USB ports */
+	int ios = IOS_GetVersion();
+	if (ios >= 200 && !IsHermesIOS(ios))
+	{
+		/* Unmount NAND */
+		ISFS_Deinitialize();
+		
+		/* Do our thing */
+		KeepAccessRightsAndReload(ios, false);
+		
+		/* Remount NAND */
+		ISFS_Initialize();
+	}
+	
 	int ret = Mount_Devices();
 	if (ret < 0) return ret;
 	
 	logfile_header();
 	return 0;
-}
-
-int Settings_Menu()
-{
-	int ret = 0;
-	u32 pressed;
-	int i, selection = 0;
-	char *menu_opt[2] = { "Device menu", "Update application" };
-	
-	while(true)
-	{
-		resetscreen();
-		printheadline();
-		
-		printf("Select an option. Press B to go back to the menu.\n\n");
-		
-		for (i = 0; i <= 1; i++)
-		{
-			printf("%s %s\n", ((selection == i) ? ARROW : "  "), menu_opt[i]);
-		}
-		
-		pressed = DetectInput(DI_BUTTONS_DOWN);
-		
-		if (pressed == WPAD_BUTTON_UP)
-		{
-			if (selection > 0) selection--;
-		}
-		
-		if (pressed == WPAD_BUTTON_DOWN)
-		{
-			if (selection < 1) selection++;
-		}
-		
-		if (pressed == WPAD_BUTTON_A)
-		{
-			if (selection == 0)
-			{
-				/* Device menu */
-				ret = Device_Menu(true);
-			} else {
-				/* Update application */
-				UpdateYABDM(launch_path);
-			}
-			
-			break;
-		}
-		
-		if (pressed == WPAD_BUTTON_B) break;
-	}
-	
-	return ret;
 }
 
 s32 __u8Cmp(const void *a, const void *b)
@@ -664,7 +651,6 @@ int ios_selectionmenu(int default_ios)
 	for (i = 0; i < ioscount; i++)
 	{
 		/* Default to default_ios if found, else the loaded IOS */
-		
 		if (list[i] == default_ios)
 		{
 			selection = i;
@@ -673,6 +659,9 @@ int ios_selectionmenu(int default_ios)
 		
 		if (list[i] == IOS_GetVersion()) selection = i;
 	}
+	
+	resetscreen();
+	printheadline();
 	
 	while (true)
 	{
@@ -724,8 +713,7 @@ int ios_selectionmenu(int default_ios)
 		
 		if (pressed == WPAD_BUTTON_HOME)
 		{
-			printf("Exiting...");
-			selection = -1;
+			selection = -2;
 			break;
 		}
 	}
@@ -734,9 +722,93 @@ int ios_selectionmenu(int default_ios)
 	return selection;
 }
 
+int Settings_Menu()
+{
+	u32 pressed;
+	int i, selection = 0, ret = 0;
+	char *menu_opt[3] = { "Device menu", "Update application", "Reload to another IOS (device remount required)" };
+	
+	while(true)
+	{
+		resetscreen();
+		printheadline();
+		
+		printf("Select an option. Press B to go back to the menu.\n\n");
+		
+		for (i = 0; i <= 2; i++)
+		{
+			printf("%s %s\n", ((selection == i) ? ARROW : "  "), menu_opt[i]);
+		}
+		
+		pressed = DetectInput(DI_BUTTONS_DOWN);
+		
+		if (pressed == WPAD_BUTTON_UP)
+		{
+			if (selection > 0) selection--;
+		}
+		
+		if (pressed == WPAD_BUTTON_DOWN)
+		{
+			if (selection < 2) selection++;
+		}
+		
+		if (pressed == WPAD_BUTTON_A)
+		{
+			switch (selection)
+			{
+				case 0:
+					/* Device menu */
+					ret = Device_Menu(true);
+					break;
+				case 1:
+					/* Update application */
+					UpdateYABDM(launch_path);
+					break;
+				case 2:
+					/* IOS reload */
+					ret = ios_selectionmenu(249);
+					if (ret > 0)
+					{
+						if (ret != IOS_GetVersion())
+						{
+							/* Unmount devices */
+							ISFS_Deinitialize();
+							Unmount_Devices();
+							
+							KeepAccessRightsAndReload(ret, true);
+							
+							/* Remount devices */
+							ISFS_Initialize();
+							ret = Mount_Devices();
+							if (ret != -2) logfile_header();
+						} else {
+							printf("\t- IOS reload aborted (IOS%d is already loaded).", ret);
+							waitforbuttonpress();
+						}
+					} else
+					if (ret == 0)
+					{
+						printf("\t- Proceeding without IOS reload...");
+						waitforbuttonpress();
+					}
+					
+					break;
+				default:
+					break;
+			}
+			
+			break;
+		}
+		
+		if (pressed == WPAD_BUTTON_B) break;
+	}
+	
+	return ret;
+}
+
 int ahbprot_menu()
 {
-	s32 ret;
+	int ret;
 	u32 pressed;
 
 	/* HW_AHBPROT check */
@@ -773,7 +845,7 @@ int ahbprot_menu()
 					printf("\tto the loader...");
 					sleep(4);
 				} else {
-					printf("OK!\n\n");
+					printf("OK!");
 				}
 				
 				break;
@@ -787,11 +859,7 @@ int ahbprot_menu()
 			}
 			
 			/* HOME/Start button */
-			if (pressed == WPAD_BUTTON_HOME)
-			{
-				printf("Exiting...");
-				return -1;
-			}
+			if (pressed == WPAD_BUTTON_HOME) return -1;
 		}
 	} else {
 		ret = -1;
@@ -799,26 +867,19 @@ int ahbprot_menu()
 	
 	if (ret < 0)
 	{
-		resetscreen();
-		printheadline();
-		
-		ret = ios_selectionmenu(236);
+		ret = ios_selectionmenu(249);
 		if (ret > 0)
 		{
-			printf("\t- Reloading to IOS%d... ", ret);
-			WUPC_Shutdown();
-			WPAD_Shutdown();
-			IOS_ReloadIOS(ret);
-			sleep(2);
-			PAD_Init();
-			WUPC_Init();
-			WPAD_Init();
-			WPAD_SetDataFormat(WPAD_CHAN_0, WPAD_FMT_BTNS_ACC_IR);
-			printf("done.\n\n");
+			if (ret != IOS_GetVersion())
+			{
+				KeepAccessRightsAndReload(ret, true);
+			} else {
+				printf("\t- IOS reload aborted (IOS%d is already loaded).", ret);
+			}
 		} else
 		if (ret == 0)
 		{
-			printf("\t- Proceeding without IOS reload...\n\n");
+			printf("\t- Proceeding without IOS reload...");
 		} else {
 			return ret;
 		}
@@ -833,15 +894,11 @@ void logfile(const char *format, ...)
 	{
 		if (!debug_file)
 		{
-			if (isSD)
-			{
-				debug_file = fopen("sd:/YABDM.log", "a");
-			} else {
-				debug_file = fopen("usb:/YABDM.log", "a");
-			}
+			char logpath[20];
+			snprintf(logpath, MAX_CHARACTERS(logpath), "%s:/YABDM.log", DEVICE(0));
+			debug_file = fopen(logpath, "a");
+			if (!debug_file) return;
 		}
-		
-		if (!debug_file) return;
 		
 		WiiDiscLight(true);
 		
@@ -857,9 +914,9 @@ void logfile(const char *format, ...)
 
 void logfile_header()
 {
-	logfile("\r\n*---------------------------------------------------------------------------------------------------------------------------*\r\n");
-	logfile("\r\nYet Another BlueDump MOD v%s - Logfile.\r\n", VERSION);
-	logfile("SDmnt(%d), USBmnt(%d), isSD(%d), vwii(%d), __wiilight(%d).\r\n", SDmnt, USBmnt, isSD, vwii, __wiilight);
+	logfile("\r\n\r\n*---------------------------------------------------------------------------------------------------------------------------*\r\n");
+	logfile("\r\n\r\nYet Another BlueDump MOD v%s - Logfile.\r\n", VERSION);
+	logfile("SDmnt(%d), USBmnt(%d), isUSB2(%d), isSD(%d), vwii(%d), __wiilight(%d).\r\n", SDmnt, USBmnt, isUSB2, isSD, vwii, __wiilight);
 	logfile("Using IOS%u v%u.\r\n", IOS_GetVersion(), IOS_GetRevision());
 	logfile("Console language: %d (%s).\r\n\r\n", lang, languages[lang]);
 }
