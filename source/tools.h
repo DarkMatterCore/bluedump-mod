@@ -7,7 +7,7 @@
 #include <runtimeiospatch.h>
 #include <malloc.h>
 
-#define VERSION "1.7"
+#define VERSION "1.8"
 
 // Values for DetectInput
 #define DI_BUTTONS_DOWN		0
@@ -24,6 +24,8 @@
 #define TITLE_LOWER(x)		((u32)(x))
 #define TITLE_ID(x,y)		(((u64)(x) << 32) | (y))
 
+#define IsHermesIOS(ios) (ios == 202 || ios == 222 || ios == 223 || ios == 224 || ios == 225)
+
 typedef struct map_entry
 {
 	char filename[8];
@@ -35,7 +37,7 @@ size_t content_map_size;
 size_t content_map_items;
 
 int lang;
-bool SDmnt, USBmnt, isSD, __debug, vwii, __wiilight;
+bool SDmnt, USBmnt, isSD, isUSB2, __debug, __wiilight, vwii;
 
 char launch_path[MAXPATHLEN];
 
