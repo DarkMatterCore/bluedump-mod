@@ -18,9 +18,9 @@ static void *xfb = NULL;
 static GXRModeObj *rmode = NULL;
 static FILE *debug_file = NULL;
 
-char *languages[10] = { "Japanese", "English", "German", "French", "Spanish", "Italian", "Dutch", "Simp. Chinese", "Trad. Chinese", "Korean" };
-
 static vu32 *_wiilight_reg = (u32*)0xCD0000C0;
+
+const char *languages[10] = { "Japanese", "English", "German", "French", "Spanish", "Italian", "Dutch", "Simp. Chinese", "Trad. Chinese", "Korean" };
 
 void WiiDiscLight(bool turn_on)
 {
@@ -67,6 +67,7 @@ u32 DetectInput(u8 DownOrHeld)
 {
 	u32 pressed = 0;
 	u32 gcpressed = 0;
+	
 	VIDEO_WaitVSync();
 	
 	// WiiMote, Classic Controller and Wii U Pro Controller take precedence over the GCN Controller to save time
@@ -202,7 +203,7 @@ void printheadline()
 	
 	printf("\nOriginal code by nicksasa and WiiPower.");
 	printf("\nUpdated by DarkMatterCore. Additional code by JoostinOnline.");
-	printf("\nHacksDen.com, The Hacking Resource Community (2013-2014).\n\n");
+	printf("\nHacksDen.com, The Hacking Resource Community (2013-2015).\n\n");
 }
 
 void set_highlight(bool highlight)
@@ -261,13 +262,13 @@ bool PriiloaderCheck(u64 id)
 bool IsPriiloaderCnt(u16 cid)
 {
 	char priiloader_cnt[ISFS_MAXPATH];
-	snprintf(priiloader_cnt, MAX_CHARACTERS(priiloader_cnt), "/title/00000001/00000002/content/1%07x.app", cid);
+	snprintf(priiloader_cnt, MAX_CHARACTERS(priiloader_cnt), "/title/00000001/00000002/content/%08x.app", ((1 << 28) | cid));
 	s32 cfd = ISFS_Open(priiloader_cnt, ISFS_OPEN_READ);
 	if (cfd >= 0)
 	{
 		ISFS_Close(cfd);
 		printf("Priiloader content detected!\n");
-		logfile("Priiloader content detected! Original System Menu content file: 1%07x.app.\r\n", cid);
+		logfile("Priiloader content detected! Original System Menu content file: %08x.app.\r\n", ((1 << 28) | cid));
 		return true;
 	}
 	
@@ -388,10 +389,15 @@ int Mount_Devices()
 
 void KeepAccessRightsAndReload(int ios, bool verbose)
 {
-	/* There should be nothing to worry about if this fails, as long as the new IOS is patched */
-	if (verbose) printf("\t- Patching IOS%d to keep hardware access rights... ", IOS_GetVersion());
-	s32 ret = IosPatch_AHBPROT(false);
-	if (verbose) printf("%s.\n", (ret < 0 ? "FAILED" : "OK"));
+	s32 ret;
+	
+	if (AHBPROT_DISABLED)
+	{
+		/* There should be nothing to worry about if this fails, as long as the new IOS is patched */
+		if (verbose) printf("\t- Patching IOS%d to keep hardware access rights... ", IOS_GetVersion());
+		ret = IosPatch_AHBPROT(false);
+		if (verbose) printf("%s.\n", (ret < 0 ? "FAILED" : "OK"));
+	}
 	
 	if (verbose) printf("\t- Reloading to IOS%d... ", ios);
 	WUPC_Shutdown();
@@ -403,6 +409,13 @@ void KeepAccessRightsAndReload(int ios, bool verbose)
 	WPAD_Init();
 	WPAD_SetDataFormat(WPAD_CHAN_0, WPAD_FMT_BTNS_ACC_IR);
 	if (verbose) printf("done.");
+	
+	if (AHBPROT_DISABLED)
+	{
+		if (verbose) printf("\n\t- Applying runtime patches to IOS%d... ", IOS_GetVersion());
+		ret = IosPatch_RUNTIME(true, false, true, false);
+		if (verbose) printf("%s.\n", (ret < 0 ? "FAILED" : "OK"));
+	}
 	
 	if (IsHermesIOS(ios))
 	{
@@ -445,19 +458,25 @@ int Device_Menu(bool swap)
 		
 		if (pressed == WPAD_BUTTON_A)
 		{
-			if ((selection == 0 && SDmnt && !isSD) || (selection == 1 && USBmnt && isSD))
+			/* Do not exit this screen if the user attempts to select an unavailable storage device */
+			if ((selection == 0 && SDmnt) || (selection == 1 && USBmnt))
 			{
-				isSD ^= 1;
-				
-				if (debug_file)
+				/* Detect if the selected device is being already used */
+				if ((selection == 0 && !isSD) || (selection == 1 && isSD))
 				{
-					fclose(debug_file);
-					logfile_header();
-					logfile("Device changed from %s to %s.\r\n\r\n", (selection == 0 ? "USB" : "SD"), DEVICE(1));
+					/* Do the magic */
+					isSD ^= 1;
+					
+					if (debug_file)
+					{
+						fclose(debug_file);
+						logfile_header();
+						logfile("Device changed from %s to %s.\r\n\r\n", (selection == 0 ? "USB" : "SD"), DEVICE(1));
+					}
 				}
+				
+				return 0;
 			}
-			
-			return 0;
 		}
 		
 		if (pressed == WPAD_BUTTON_B)
@@ -589,7 +608,7 @@ u8 *get_ioslist(u32 *cnt)
 			}
 			
 			/* Check if this IOS is a stub */
-			skip_title = ((titleSize < 0x100000) ? true : false);
+			skip_title = (titleSize < 0x100000);
 			
 			free(iosTMDBuffer);
 		} else {
@@ -927,18 +946,18 @@ void hexdump_log(void *d, int len)
 	{
 		int i, f, off;
 		u8 *data = (u8*)d;
-		for (off=0; off<len; off += 16)
+		for (off = 0; off < len; off += 16)
 		{
-			logfile("%08x:  ",16*(off/16));
-			for(f=0; f < 16; f += 4)
+			logfile("%08x:  ", 16 * (off / 16));
+			for (f = 0; f < 16; f += 4)
 			{
-				for(i=0; i<4; i++)
+				for (i = 0; i < 4; i++)
 				{
-					if((i+off)>=len)
+					if ((i + off) >= len)
 					{
 						logfile(" ");
 					} else {
-						logfile("%02x",data[off+f+i]);
+						logfile("%02x", data[off + f + i]);
 					}  
 				}
 				logfile(" ");
@@ -955,7 +974,6 @@ void hex_key_dump(void *d, int len)
 	{
 		int i;
 		u8 *data = (u8*)d;
-		
-		for(i = 0; i < len; i++) logfile("%02x ", data[i]);
+		for (i = 0; i < len; i++) logfile("%02x ", data[i]);
 	}
 }

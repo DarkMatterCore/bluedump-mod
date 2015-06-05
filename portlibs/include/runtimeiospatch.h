@@ -12,6 +12,7 @@
 // Copyright (C) 2012-2013	Christopher Bratusek <nano@tuxfamily.org>
 // Copyright (C) 2013		DarkMatterCore
 // Copyright (C) 2014		megazig
+// Copyright (C) 2015		FIX94
 
 #ifndef __RUNTIMEIOSPATCH_H__
 #define __RUNTIMEIOSPATCH_H__
@@ -19,7 +20,7 @@
 /**
  * Version information for Libruntimeiospatch.
  */
-#define LIB_RUNTIMEIOSPATCH_VERSION "1.5.1"
+#define LIB_RUNTIMEIOSPATCH_VERSION "1.5.2"
 
 //==============================================================================
 // HW_RVL header

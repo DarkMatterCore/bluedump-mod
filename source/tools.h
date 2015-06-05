@@ -7,7 +7,7 @@
 #include <runtimeiospatch.h>
 #include <malloc.h>
 
-#define VERSION "1.8"
+#define VERSION "1.81"
 
 // Values for DetectInput
 #define DI_BUTTONS_DOWN		0
@@ -37,7 +37,7 @@ size_t content_map_size;
 size_t content_map_items;
 
 int lang;
-bool SDmnt, USBmnt, isSD, isUSB2, __debug, __wiilight, vwii;
+bool SDmnt, USBmnt, isSD, isUSB2, __debug, __wiilight, vwii, netw_init;
 
 char launch_path[MAXPATHLEN];
 

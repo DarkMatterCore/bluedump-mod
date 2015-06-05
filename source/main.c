@@ -3,6 +3,7 @@
 #include <string.h>
 #include <gccore.h>
 #include <ogcsys.h>
+#include <network.h>
 
 #include "yabdm.h"
 #include "tools.h"
@@ -92,6 +93,9 @@ int main(int argc, char* argv[])
 	
 	/* Free content.map buffer */
 	if (cm) free(cm);
+	
+	/* Deinitialize network */
+	if (netw_init) net_deinit();
 	
 	/* Unmount storage devices (including NAND FS) and exit */
 	ISFS_Deinitialize();

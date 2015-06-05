@@ -14,15 +14,16 @@
 #include <network.h>
 
 #include "tools.h"
+#include "ssl.h"
 
-#define PERCENT				(u32)(((double)cnt/len*100) + 1)
-#define NETWORK_PORT		80
-#define NETWORK_BLOCKSIZE	2048
+#define PERCENT					(u32)(((double)cnt/len*100) + 1)
+#define NETWORK_PORT			443
+#define NETWORK_BLOCKSIZE		2048
 
-#define NETWORK_HOSTNAME		"bluedump-mod.googlecode.com"
-#define NETWORK_DOL_PATH		"/svn/trunk/HBC/boot.dol"
-#define NETWORK_XML_PATH		"/svn/trunk/HBC/meta.xml"
-#define NETWORK_VERSION_PATH	"/svn/trunk/source/tools.h"
+#define NETWORK_HOSTNAME		"raw.githubusercontent.com"
+#define NETWORK_DOL_PATH		"/DarkMatterCore/bluedump-mod/master/HBC/boot.dol"
+#define NETWORK_XML_PATH		"/DarkMatterCore/bluedump-mod/master/HBC/meta.xml"
+#define NETWORK_VERSION_PATH	"/DarkMatterCore/bluedump-mod/master/source/tools.h"
 
 float latest_ver = 0.0;
 bool update = false;
@@ -32,7 +33,7 @@ static u8 fileBuf[NETWORK_BLOCKSIZE] ATTRIBUTE_ALIGN(32);
 
 /* Network variables */
 static s32 sockfd = -1;
-bool netw_init = false;
+static s32 ssl_context = -1;
 
 s32 network_init(void)
 {
@@ -73,7 +74,7 @@ s32 network_connect(char HOSTNAME[1024])
 	sockfd = net_socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
 	if (sockfd < 0)
 	{
-		logfile("net_socked failed (sockfd = %d).\r\n", sockfd);
+		logfile("Error initializing TCP socket (sockfd = %d).\r\n", sockfd);
 		return sockfd;
 	}
 	
@@ -83,15 +84,17 @@ s32 network_connect(char HOSTNAME[1024])
 		logfile("Couldn't get hostname.\r\n");
 		return -1;
 	}
-
-	memcpy(&sa.sin_addr, he->h_addr_list[0], he->h_length);
+	
+	memset(&sa, 0, sizeof(struct sockaddr_in));
+	sa.sin_len = sizeof(struct sockaddr_in);
 	sa.sin_family = AF_INET;
 	sa.sin_port = htons(NETWORK_PORT);
+	memcpy(&sa.sin_addr, he->h_addr_list[0], he->h_length);
 	
-	ret = net_connect(sockfd, (struct sockaddr *)&sa, sizeof(sa));
+	ret = net_connect(sockfd, (struct sockaddr *)&sa, sizeof(struct sockaddr_in));
 	if (ret < 0)
 	{
-		logfile("net_connect failed (ret = %d).\r\n", ret);
+		logfile("Error connecting to the hostname (ret = %d).\r\n", ret);
 		return ret;
 	}
 	
@@ -108,6 +111,8 @@ s32 network_request(char NETWORK_PATH[1024], char HOSTNAME[1024])
 	
 	char *r = request;
 	r += sprintf(r, "GET %s HTTP/1.1\r\n", NETWORK_PATH);
+	r += sprintf(r, "User-Agent: bluedump-mod/%s (Nintendo Wii)\r\n", VERSION);
+	r += sprintf(r, "Accept: */*\r\n");
 	r += sprintf(r, "Host: %s\r\n", HOSTNAME);
 	r += sprintf(r, "Cache-Control: no-cache\r\n\r\n");
 	
@@ -117,28 +122,84 @@ s32 network_request(char NETWORK_PATH[1024], char HOSTNAME[1024])
 	ret = network_connect(HOSTNAME);
 	if (ret < 0) return ret;
 	
-	ret = net_send(sockfd, request, strlen(request), 0);
-	if (ret < 0)
+	/* HTTPS support */
+	if (NETWORK_PORT == 443)
 	{
-		logfile("net_send failed (ret = %d).\r\n", ret);
-		return ret;
+		ret = ssl_init();
+		if (ret < 0)
+		{
+			logfile("Error initializing SSL interface (ret = %d).\r\n", ret);
+			return ret;
+		}
+		
+		ssl_context = ssl_new((u8*)HOSTNAME, 0);
+		if (ssl_context < 0)
+		{
+			logfile("Error initializing new SSL context (ssl_context = %d).\r\n", ssl_context);
+			return ssl_context;
+		}
+		
+		ret = ssl_setbuiltinclientcert(ssl_context, 0);
+		if (ret < 0)
+		{
+			logfile("Error setting built-in SSL client cert (ret = %d).\r\n", ret);
+			ssl_shutdown(ssl_context);
+			return ret;
+		}
+		
+		ret = ssl_connect(ssl_context, sockfd);
+		if (ret < 0)
+		{
+			logfile("Error connecting to the hostname through SSL (ret = %d).\r\n", ret);
+			ssl_shutdown(ssl_context);
+			return ret;
+		}
+		
+		ret = ssl_handshake(ssl_context);
+		if (ret < 0)
+		{
+			logfile("Error doing a handshake to the hostname through SSL (ret = %d).\r\n", ret);
+			ssl_shutdown(ssl_context);
+			return ret;
+		}
+		
+		ret = ssl_write(ssl_context, request, strlen(request));
+		if (ret < 0)
+		{
+			logfile("Error sending HTTPS request (ret = %d).\r\n", ret);
+			return ret;
+		}
+	} else {
+		ret = net_write(sockfd, request, strlen(request));
+		if (ret < 0)
+		{
+			logfile("Error sending HTTP request (ret = %d).\r\n", ret);
+			return ret;
+		}
 	}
 	
 	memset(buf, 0, sizeof(buf));
 	
 	for (cnt = 0; !strstr(buf, "\r\n\r\n"); cnt++)
 	{
-		ret = net_recv(sockfd, buf + cnt, 1, 0);
+		if (NETWORK_PORT == 443)
+		{
+			ret = ssl_read(ssl_context, buf + cnt, 1);
+		} else {
+			ret = net_read(sockfd, buf + cnt, 1);
+		}
+		
 		if (ret <= 0)
 		{
-			logfile("net_recv failed (ret = %d).\r\n", ret);
+			logfile("Error reading data from hostname (ret = %d).\r\n", ret);
+			if (NETWORK_PORT == 443) ssl_shutdown(ssl_context);
 			return ret;
 		}
 	}
 	
 	if (!strstr(buf, "HTTP/1.1 200 OK"))
 	{
-		logfile("Unexpected HTTP status code:\r\n\r\n%s\r\n\r\n", buf);
+		logfile("\r\nHTTP status code:\r\n\r\n%s\r\n\r\n", buf);
 		return -1;
 	}
 	
@@ -146,6 +207,7 @@ s32 network_request(char NETWORK_PATH[1024], char HOSTNAME[1024])
 	if (!ptr)
 	{
 		logfile("Couldn't parse Content-Length.\r\n");
+		if (NETWORK_PORT == 443) ssl_shutdown(ssl_context);
 		return -1;
 	}
 	
@@ -161,10 +223,17 @@ s32 network_read(void *buf, u32 len)
 	
 	while (read < len)
 	{
-		ret = net_read(sockfd, buf + read, len - read);
+		if (NETWORK_PORT == 443)
+		{
+			ret = ssl_read(ssl_context, buf + read, len - read);
+		} else {
+			ret = net_read(sockfd, buf + read, len - read);
+		}
+		
 		if (ret <= 0)
 		{
-			logfile("net_read failed (ret = %d).\r\n", ret);
+			logfile("Error reading data from hostname (ret = %d).\r\n", ret);
+			if (NETWORK_PORT == 443) ssl_shutdown(ssl_context);
 			return ret;
 		}
 		
@@ -365,8 +434,11 @@ void UpdateYABDM(char *lpath)
 					printf("You already updated the application. Restart to reflect the new changes.");
 					logfile("You already updated the application. Restart to reflect the new changes.\r\n");
 				} else {
-					printf("Version available on server: %g. You already have the latest version.", latest_ver);
-					logfile("Version available on server: %g. You already have the latest version.\r\n", latest_ver);
+					if (latest_ver > 0)
+					{
+						printf("Version available on server: %g. You already have the latest version.", latest_ver);
+						logfile("Version available on server: %g. You already have the latest version.\r\n", latest_ver);
+					}
 				}
 			}
 		}

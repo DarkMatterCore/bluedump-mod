@@ -3,7 +3,7 @@
  *                                                                             *
  * Copyright (c) 2009 Nicksasa                                                 *
  *                                                                             *
- * Modified by DarkMatterCore [PabloACZ] (2013-2014)                           *
+ * Modified by DarkMatterCore [PabloACZ] (2013-2015)                           *
  *                                                                             *
  * Distributed under the terms of the GNU General Public License (v3)          *
  * See http://www.gnu.org/licenses/gpl-3.0.txt for more info.                  *
@@ -1967,6 +1967,8 @@ char GetSysMenuRegion(u16 version)
 		case 54454: // mauifrog's 4.1 mod
 			SysMenuRegion = 'K';
 			break;
+		default:
+			break;
 	}
 	
 	return SysMenuRegion;
@@ -2126,21 +2128,13 @@ s32 make_header(void)
 	}
 	
 	now->header_len = 0x20;
-
 	now->type = 0x4973;
-
 	now->padding = 0;
-
 	now->certs_len = 0;
-	
 	now->crl_len = 0;
-	
 	now->tik_len = 0;
-	
 	now->tmd_len = 0;
-	
 	now->data_len = 0;
-	
 	now->footer_len = 0;
 	
 	header = now;
@@ -2884,7 +2878,7 @@ void select_forge(int type)
 			ftmd = true;
 			logfile(" TMD will be fakesigned!");
 			
-			isDLC = ((type == TYPE_DLC) ? true : false);
+			isDLC = (type == TYPE_DLC);
 			if (isDLC) 
 			{
 				ftik = true;
@@ -3538,6 +3532,8 @@ void yabdm_loop()
 	lang = CONF_GetLanguage();
 	
 	logfile_header();
+	
+	netw_init = false;
 	
 	/* Read the content.map file here to avoid reading it at a later time */
 	GetContentMap();
