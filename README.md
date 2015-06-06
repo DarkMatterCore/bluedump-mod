@@ -56,6 +56,16 @@ Thanks to
 Changelog
 --------------
 
+**YABDM v1.82 (June 6th, 2015 - DarkMatterCore):**
+
+* Reapplied the fixes made to libruntimeiospatch by JoostinOnline in later versions of the library, since it appears the revision stored on GitHub (the one my fork is based on) was an old one.
+
+**YABDM v1.81 (June 5th, 2015 - DarkMatterCore):**
+
+* Codebase exported to GitHub. The network code has been updated to support SSL connections and file downloads from raw.githubusercontent.com.
+* libruntimeiospatch updated to v1.5.2, which includes IOS SSL patches made by FIX94 required to properly establish HTTPS connections.
+* Some minor tweaks.
+
 **YABDM v1.8 (December 9th, 2014 - DarkMatterCore):**
 
 * Fixed a bug where garbled text was being displayed for titles that use 0xFF instead of 0x00 as the preceding byte for each character in their name field (fixes MEGA MAN 9 DLC, possibly others).
