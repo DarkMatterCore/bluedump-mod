@@ -7,7 +7,7 @@
 #include <runtimeiospatch.h>
 #include <malloc.h>
 
-#define VERSION "1.81"
+#define VERSION "1.82"
 
 // Values for DetectInput
 #define DI_BUTTONS_DOWN		0
