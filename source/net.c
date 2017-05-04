@@ -25,6 +25,8 @@
 #define NETWORK_XML_PATH		"/DarkMatterCore/bluedump-mod/master/HBC/meta.xml"
 #define NETWORK_VERSION_PATH	"/DarkMatterCore/bluedump-mod/master/source/tools.h"
 
+#define MAX_INIT_RETRIES		3
+
 float latest_ver = 0.0;
 bool update = false;
 
@@ -41,11 +43,11 @@ s32 network_init(void)
 	{
 		printf("Initializing network... ");
 		logfile("Initializing network... ");
-		s32 ret = if_config(hostip, NULL, NULL, true);
+		s32 ret = if_config(hostip, NULL, NULL, true, MAX_INIT_RETRIES);
 		if (ret < 0)
 		{
-			printf("Error! (ret = %d). Couldn't initialize the network!", ret);
-			logfile("if_config failed (ret = %d).\r\n", ret);
+			printf("Error! (ret = %ld). Couldn't initialize the network!", ret);
+			logfile("if_config failed (ret = %ld).\r\n", ret);
 		} else {
 			printf("OK! IP: %s.\n", hostip);
 			logfile("OK! IP: %s.\r\n", hostip);
@@ -74,7 +76,7 @@ s32 network_connect(char HOSTNAME[1024])
 	sockfd = net_socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
 	if (sockfd < 0)
 	{
-		logfile("Error initializing TCP socket (sockfd = %d).\r\n", sockfd);
+		logfile("Error initializing TCP socket (sockfd = %ld).\r\n", sockfd);
 		return sockfd;
 	}
 	
@@ -94,7 +96,7 @@ s32 network_connect(char HOSTNAME[1024])
 	ret = net_connect(sockfd, (struct sockaddr *)&sa, sizeof(struct sockaddr_in));
 	if (ret < 0)
 	{
-		logfile("Error connecting to the hostname (ret = %d).\r\n", ret);
+		logfile("Error connecting to the hostname (ret = %ld).\r\n", ret);
 		return ret;
 	}
 	
@@ -128,21 +130,21 @@ s32 network_request(char NETWORK_PATH[1024], char HOSTNAME[1024])
 		ret = ssl_init();
 		if (ret < 0)
 		{
-			logfile("Error initializing SSL interface (ret = %d).\r\n", ret);
+			logfile("Error initializing SSL interface (ret = %ld).\r\n", ret);
 			return ret;
 		}
 		
 		ssl_context = ssl_new((u8*)HOSTNAME, 0);
 		if (ssl_context < 0)
 		{
-			logfile("Error initializing new SSL context (ssl_context = %d).\r\n", ssl_context);
+			logfile("Error initializing new SSL context (ssl_context = %ld).\r\n", ssl_context);
 			return ssl_context;
 		}
 		
 		ret = ssl_setbuiltinclientcert(ssl_context, 0);
 		if (ret < 0)
 		{
-			logfile("Error setting built-in SSL client cert (ret = %d).\r\n", ret);
+			logfile("Error setting built-in SSL client cert (ret = %ld).\r\n", ret);
 			ssl_shutdown(ssl_context);
 			return ret;
 		}
@@ -150,7 +152,7 @@ s32 network_request(char NETWORK_PATH[1024], char HOSTNAME[1024])
 		ret = ssl_connect(ssl_context, sockfd);
 		if (ret < 0)
 		{
-			logfile("Error connecting to the hostname through SSL (ret = %d).\r\n", ret);
+			logfile("Error connecting to the hostname through SSL (ret = %ld).\r\n", ret);
 			ssl_shutdown(ssl_context);
 			return ret;
 		}
@@ -158,7 +160,7 @@ s32 network_request(char NETWORK_PATH[1024], char HOSTNAME[1024])
 		ret = ssl_handshake(ssl_context);
 		if (ret < 0)
 		{
-			logfile("Error doing a handshake to the hostname through SSL (ret = %d).\r\n", ret);
+			logfile("Error doing a handshake to the hostname through SSL (ret = %ld).\r\n", ret);
 			ssl_shutdown(ssl_context);
 			return ret;
 		}
@@ -166,14 +168,14 @@ s32 network_request(char NETWORK_PATH[1024], char HOSTNAME[1024])
 		ret = ssl_write(ssl_context, request, strlen(request));
 		if (ret < 0)
 		{
-			logfile("Error sending HTTPS request (ret = %d).\r\n", ret);
+			logfile("Error sending HTTPS request (ret = %ld).\r\n", ret);
 			return ret;
 		}
 	} else {
 		ret = net_write(sockfd, request, strlen(request));
 		if (ret < 0)
 		{
-			logfile("Error sending HTTP request (ret = %d).\r\n", ret);
+			logfile("Error sending HTTP request (ret = %ld).\r\n", ret);
 			return ret;
 		}
 	}
@@ -191,7 +193,7 @@ s32 network_request(char NETWORK_PATH[1024], char HOSTNAME[1024])
 		
 		if (ret <= 0)
 		{
-			logfile("Error reading data from hostname (ret = %d).\r\n", ret);
+			logfile("Error reading data from hostname (ret = %ld).\r\n", ret);
 			if (NETWORK_PORT == 443) ssl_shutdown(ssl_context);
 			return ret;
 		}
@@ -200,6 +202,7 @@ s32 network_request(char NETWORK_PATH[1024], char HOSTNAME[1024])
 	if (!strstr(buf, "HTTP/1.1 200 OK"))
 	{
 		logfile("\r\nHTTP status code:\r\n\r\n%s\r\n\r\n", buf);
+		if (NETWORK_PORT == 443) ssl_shutdown(ssl_context);
 		return -1;
 	}
 	
@@ -211,8 +214,8 @@ s32 network_request(char NETWORK_PATH[1024], char HOSTNAME[1024])
 		return -1;
 	}
 	
-	sscanf(ptr, "Content-Length: %u", &size);
-	//printf("Content-Length: %d bytes.\n", size);
+	sscanf(ptr, "Content-Length: %lu", &size);
+	//printf("Content-Length: %lu bytes.\n", size);
 
 	return size;
 }
@@ -232,7 +235,7 @@ s32 network_read(void *buf, u32 len)
 		
 		if (ret <= 0)
 		{
-			logfile("Error reading data from hostname (ret = %d).\r\n", ret);
+			logfile("Error reading data from hostname (ret = %ld).\r\n", ret);
 			if (NETWORK_PORT == 443) ssl_shutdown(ssl_context);
 			return ret;
 		}
@@ -253,7 +256,7 @@ s32 ReadNetwork(FILE *file, char NETWORK_PATH[1024], char HOSTNAME[1024])
 	len = network_request(NETWORK_PATH, HOSTNAME);
 	if (len < 0) return len;
 	
-	logfile("File length: %d bytes.\r\n", len);
+	logfile("File length: %lu bytes.\r\n", len);
 	
 	time_t start, end;
 	char speed[1024];
@@ -270,7 +273,7 @@ s32 ReadNetwork(FILE *file, char NETWORK_PATH[1024], char HOSTNAME[1024])
 		sprintf(speed, "%ld", ((cnt / 1024) + 1)/(end - start));
 		
 		Con_ClearLine();
-		printf("\t- Downloading %d KB @ %s KB/s. Progress: %d KB (%d%%).", (len / 1024) + 1, speed, (cnt / 1024) + 1, PERCENT);
+		printf("\t- Downloading %ld KB @ %s KB/s. Progress: %ld KB (%ld%%).", (len / 1024) + 1, speed, (cnt / 1024) + 1, PERCENT);
 		
 		ret = network_read(fileBuf, blksize);
 		if (ret != blksize)
@@ -304,8 +307,8 @@ s32 FileUpdate(char *path, bool is_dol)
 	ret = remove(fpath);
 	if (ret != 0)
 	{
-		printf("Error deleting previous %s! (ret = %d)\n\n", (is_dol ? "boot.dol" : "meta.xml"), ret);
-		logfile("Error deleting previous %s! (ret = %d)\r\n", (is_dol ? "boot.dol" : "meta.xml"), ret);
+		printf("Error deleting previous %s! (ret = %ld)\n\n", (is_dol ? "boot.dol" : "meta.xml"), ret);
+		logfile("Error deleting previous %s! (ret = %ld)\r\n", (is_dol ? "boot.dol" : "meta.xml"), ret);
 		return -1;
 	}
 	
@@ -342,7 +345,7 @@ bool CheckLatestVersion(float cur_ver)
 		len = network_request(NETWORK_VERSION_PATH, NETWORK_HOSTNAME);
 		if (len < 0) return len;
 		
-		logfile("File length: %d bytes.\r\n", len);
+		logfile("File length: %lu bytes.\r\n", len);
 		
 		for (cnt = 0; cnt < len; cnt += blksize)
 		{
@@ -379,7 +382,7 @@ void UpdateYABDM(char *lpath)
 		
 		logfile("\r\n[UPDATEYABDM] Error: launch path is empty!\r\n");
 	} else
-	if ((strnicmp(lpath, "sd:", 3) != 0) && (strnicmp(lpath, "usb:", 4) != 0))
+	if ((strncasecmp(lpath, "sd:", 3) != 0) && (strncasecmp(lpath, "usb:", 4) != 0))
 	{
 		printf("\nThe launch path is invalid.\n");
 		printf("The update procedure cannot be performed.\n");
@@ -392,7 +395,7 @@ void UpdateYABDM(char *lpath)
 		/* Parse the launch directory */
 		char path[MAXPATHLEN] = {0};
 		char *first_slash = strrchr(lpath, '/');
-		if (first_slash != NULL) strncpy(path, lpath, first_slash - lpath + 1);
+		strncpy(path, lpath, (first_slash != NULL ? (first_slash - lpath + 1) : strlen(lpath)));
 		
 		printf("Launch path: \"%s\".\n", path);
 		logfile("\r\n[UPDATEYABDM] Launch path: %s.\r\n", path);
@@ -431,8 +434,8 @@ void UpdateYABDM(char *lpath)
 			} else {
 				if (update)
 				{
-					printf("You already updated the application. Restart to reflect the new changes.");
-					logfile("You already updated the application. Restart to reflect the new changes.\r\n");
+					printf("You already updated the application. Restart in order for the new changes to make effect.");
+					logfile("You already updated the application. Restart in order for the new changes to make effect.\r\n");
 				} else {
 					if (latest_ver > 0)
 					{

@@ -7,7 +7,9 @@
 #include <runtimeiospatch.h>
 #include <malloc.h>
 
-#define VERSION "1.82"
+#define VERSION "1.83"
+
+#define MAXPATHLEN 256
 
 // Values for DetectInput
 #define DI_BUTTONS_DOWN		0
@@ -24,7 +26,7 @@
 #define TITLE_LOWER(x)		((u32)(x))
 #define TITLE_ID(x,y)		(((u64)(x) << 32) | (y))
 
-#define IsHermesIOS(ios) (ios == 202 || ios == 222 || ios == 223 || ios == 224 || ios == 225)
+#define IsHermesIOS(ios) ((ios) == 202 || (ios) == 222 || (ios) == 223 || (ios) == 224 || (ios) == 225)
 
 typedef struct map_entry
 {
@@ -56,8 +58,8 @@ bool IsPriiloaderCnt(u16 cid);
 void Unmount_Devices();
 int Mount_Devices();
 int Device_Menu(bool swap);
-int Settings_Menu();
-int ahbprot_menu();
+s32 Settings_Menu();
+s32 ahbprot_menu();
 void logfile(const char *format, ...);
 void logfile_header();
 void hexdump_log(void *d, int len);

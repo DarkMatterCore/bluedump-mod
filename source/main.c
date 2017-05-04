@@ -18,7 +18,8 @@ int main(int argc, char* argv[])
 {
 	__exception_setreload(10);
 	
-	int i, ret;
+	int i;
+	s32 ret;
 	
 	Init_Console();
 	printf("\x1b[%u;%um", 37, false);

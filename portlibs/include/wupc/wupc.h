@@ -50,6 +50,7 @@ s16 WUPC_lStickX(u8 chan);
 s16 WUPC_lStickY(u8 chan);
 s16 WUPC_rStickX(u8 chan);
 s16 WUPC_rStickY(u8 chan);
+u8 WUPC_extra(u8 chan);
 
 #ifdef __cplusplus
 }

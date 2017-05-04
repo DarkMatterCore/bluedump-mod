@@ -62,7 +62,7 @@ s32 Get_OTP_data()
 	
 	/* Copy Console ID */
 	memcpy(&console_id, otp_data->ng_id, 4);
-	logfile("Console ID: %08x... ", console_id);
+	logfile("Console ID: %08lx... ", console_id);
 	
 	free(otp_data);
 	
@@ -159,7 +159,7 @@ s32 Get_BootMii_data(u32 cntbin_cid)
 		
 		/* Copy Console ID */
 		memcpy(&bootmii_cid, otp_data->ng_id, 4);
-		logfile("BootMii Console ID: %08x... ", bootmii_cid);
+		logfile("BootMii Console ID: %08lx... ", bootmii_cid);
 		
 		free(otp_data);
 		

@@ -4,11 +4,11 @@
 #define BLOCKSIZE		0x4000 // 16 KB
 #define SD_BLOCKSIZE	0x8000 // 32 KB
 
-#define DIRENT_T_FILE 0
-#define DIRENT_T_DIR 1
+#define DIRENT_T_FILE	0
+#define DIRENT_T_DIR	1
 
-#define ROOT_DIR "/title"
-#define SD_ROOT_DIR "sd:/private/wii/title"
+#define ROOT_DIR		"/title"
+#define SD_ROOT_DIR		"sd:/private/wii/title"
 
 #define TYPE_SAVEDATA 	0
 #define TYPE_TITLE 		1
@@ -64,7 +64,7 @@ typedef struct
 	u32 unk;			// 3 fixed, unknown purpose. Possibly file count?
 	u32 sizes[3];		// icon.bin, banner.bin, sound.bin
 	u32 flag1;			// unknown
-	u8 names[20][42];	// Japanese, English, German, French, Spanish, Italian, Dutch, unknown, unknown, Korean
+	u8 names[20][42];	// Japanese, English, German, French, Spanish, Italian, Dutch, Simp. Chinese, Trad. Chinese, Korean
 	u8 lol[0xC];
 } IMET;
 

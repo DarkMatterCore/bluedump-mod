@@ -17,12 +17,12 @@ Main features
 * Ability to apply IOS patches at runtime if full hardware access is granted (HW_AHBPROT register disabled), through libruntimeiospatch.
 * IOS selection menu which allows you to manually reload to a different IOS, automatically skipping critical system titles and stub IOSes.
 	- If full hardware access is enabled, the new IOS will inherit these access rights.
-	- Also, if an Hermes cIOS is loaded, the additional ehcmodule
+	- Also, if an Hermes cIOS is loaded, the additional ehcmodule will be enabled, too.
 * Compatibility with USB 2.0 devices when using a cIOS (max. 10 seconds timeout).
 * Ability to read application arguments passed from the loader (0 = disabled / 1 = enabled).
-	- debug: Enables the debug mode, which creates a logfile (called YABDM.log) with technical information about the application's performance.
+	- debug: Enables the debug mode, which creates a logfile called "YABDM.log" in the root directory of the selected device, with technical information about the application's performance.
 	- wiilight: Activates the Wii disc light as a read/write indicator for the output device.
-* Updater that allows you to download a new version of the application straight from the Google Code server (if available).
+* Updater that allows you to download a new version of the application straight from the GitHub repo (if available).
 * Ability to generate a proper System Menu WAD even if Priiloader is already installed.
 * Change between hexadecimal and ASCII Title IDs while browsing the title list.
 * Improved internal name reading capabilities that are compatible not only with regular content files and savegames, but also with DLCs and content.bin files. The read names will be displayed in the language set on the Wii Options Menu (whenever possible).
@@ -55,6 +55,13 @@ Thanks to
 
 Changelog
 --------------
+
+**YABDM v1.83 (May 4th, 2017 - DarkMatterCore):**
+
+* Added support for the vWii Common Key. System Titles dumped from a vWii will now retain proper AES encryption and their tickets won't be fakesigned by default anymore. An updated WAD Manager shall be needed in order to install these WADs.
+* Updated libruntimeiospatch to v1.5.4.
+* Updated libwupc to r3 mod 2 (made by Cyan).
+* Fixed building with latest devkitPPC + libogc.
 
 **YABDM v1.82 (June 6th, 2015 - DarkMatterCore):**
 
