@@ -652,7 +652,7 @@ s32 *get_ioslist(u32 *cnt)
 	for (i = 0; i < icnt; i++) ioses[i] = (s32)buf[i];
 	
 	free(buf);
-	qsort(ioses, icnt, 1, __s32Cmp);
+	qsort(ioses, icnt, sizeof(s32), __s32Cmp);
 	*cnt = icnt;
 	
 	return ioses;

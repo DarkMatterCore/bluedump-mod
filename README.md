@@ -56,6 +56,13 @@ Thanks to
 Changelog
 --------------
 
+**YABDM v1.84 (May 12th, 2017 - DarkMatterCore):**
+
+* Fixed sorting method for the IOS selection screen. IOS version numbers are now properly displayed.
+* Replaced Steve Reid's SHA-1 C implementation with the standard SHA-1 C implementation from RFC 3174 (with some modifications). This fixes the hash calculation error.
+
+I apologize for these mistakes. I don't have a TV anymore, so I wasn't able to test the previous release.
+
 **YABDM v1.83 (May 4th, 2017 - DarkMatterCore):**
 
 * Added support for the vWii Common Key. System Titles dumped from a vWii will now retain proper AES encryption and their tickets won't be fakesigned by default anymore. An updated WAD Manager shall be needed in order to install these WADs.

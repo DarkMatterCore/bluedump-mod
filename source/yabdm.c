@@ -998,15 +998,15 @@ s32 GetContent(FILE *f, u64 id, u32 content, u8* key, u16 index, u32 size, u8 *h
 	char path[ISFS_MAXPATH];
 	
 	/* Used to hold the current state of the SHA-1 hash during calculation */
-	SHA1_CTX ctx;
-	SHA1Init(&ctx);
+	SHA1Context ctx;
+	SHA1Reset(&ctx);
 	
 	snprintf(path, MAX_CHARACTERS(path), "/title/%08lx/%08lx/content/%08lx.app", TITLE_UPPER(id), TITLE_LOWER(id), content);
-	logfile("Regular content path is '%s'.\r\n", path);
-	printf("Adding regular content %08lx.app... ", content);
-	logfile("TMD hash: ");
+	logfile("Regular content path is '%s'.\r\nContent size: %lu bytes.\r\nTMD hash: ", path, size);
 	hex_key_dump(hash, 20);
 	logfile("\r\n");
+	
+	printf("Adding regular content %08lx.app... ", content);
 	
 	s32 fd = ISFS_Open(path, ISFS_OPEN_READ);
 	if (fd < 0)
@@ -1046,7 +1046,7 @@ s32 GetContent(FILE *f, u64 id, u32 content, u8* key, u16 index, u32 size, u8 *h
 		if (ret < 0) break;
 		
 		/* Hash current data block */
-		SHA1Update(&ctx, buffer, blksize);
+		SHA1Input(&ctx, buffer, blksize);
 		
 		/* Pad data to a 16-byte boundary (required for the encryption process). Probably only needed for the last chunk */
 		if ((blksize % 16) != 0) blksize = pad_data(buffer, blksize, true);
@@ -1068,7 +1068,7 @@ s32 GetContent(FILE *f, u64 id, u32 content, u8* key, u16 index, u32 size, u8 *h
 	if (ret >= 0)
 	{
 		sha1 cnthash;
-		SHA1Final(cnthash, &ctx);
+		SHA1Result(&ctx, cnthash);
 		logfile("Dumped content hash: ");
 		hex_key_dump(cnthash, 20);
 		logfile("\r\n");
@@ -1211,10 +1211,10 @@ s32 GetContentFromCntBin(FILE *cnt_bin, FILE *wadout, u16 index, u32 size, u8 *k
 	u32 blksize = SD_BLOCKSIZE; // 32 KB
 	
 	/* Used to hold the current state of the SHA-1 hash during calculation */
-	SHA1_CTX ctx;
-	SHA1Init(&ctx);
+	SHA1Context ctx;
+	SHA1Reset(&ctx);
 	
-	logfile("TMD hash: ");
+	logfile("Content size: %lu bytes.\r\nTMD hash: ", size);
 	hex_key_dump(hash, 20);
 	logfile("\r\n");
 	
@@ -1255,12 +1255,7 @@ s32 GetContentFromCntBin(FILE *cnt_bin, FILE *wadout, u16 index, u32 size, u8 *k
 		if (ret < 0) break;
 		
 		/* Hash current data block */
-		if (blksize == SD_BLOCKSIZE)
-		{
-			SHA1Update(&ctx, buffer, blksize);
-		} else {
-			SHA1Update(&ctx, buffer, blksize - (rounded_size - size));
-		}
+		SHA1Input(&ctx, buffer, (blksize == SD_BLOCKSIZE ? blksize : (blksize - (rounded_size - size))));
 		
 		/* Only do this if the content needs padding */
 		if ((rounded_size - size) > 0)
@@ -1291,7 +1286,7 @@ s32 GetContentFromCntBin(FILE *cnt_bin, FILE *wadout, u16 index, u32 size, u8 *k
 	if (ret >= 0)
 	{
 		sha1 cnthash;
-		SHA1Final(cnthash, &ctx);
+		SHA1Result(&ctx, cnthash);
 		logfile("Dumped content hash: ");
 		hex_key_dump(cnthash, 20);
 		logfile("\r\n");
@@ -2285,7 +2280,7 @@ s32 Wad_Dump(u64 id, char *path)
 	/* Get Title Key */
 	printf("Decrypting AES Title Key... ");
 	logfile("Decrypting AES Title Key... ");
-	ret = get_title_key(id, p_tik, (u8 *)key);
+	ret = get_title_key(id, p_tik, key);
 	free(p_tik);
 	
 	if (ret < 0)
@@ -2326,7 +2321,7 @@ s32 Wad_Dump(u64 id, char *path)
 		{
 			case 0x0001: // Normal
 			case 0x4001: // DLC
-				ret = GetContent(wadout, id, ((priiloader && IsPriiloaderCnt(content->cid)) ? ((u32)((1 << 28) | content->cid)) : ((u32)content->cid)), (u8*)key, content->index, (u32)content->size, content->hash);
+				ret = GetContent(wadout, id, ((priiloader && IsPriiloaderCnt(content->cid)) ? ((u32)((1 << 28) | content->cid)) : ((u32)content->cid)), key, content->index, (u32)content->size, content->hash);
 				if (content->type == 0x4001 && ret == -106)
 				{
 					ret = 0; // Nothing happened here, boy.
@@ -2367,7 +2362,7 @@ s32 Wad_Dump(u64 id, char *path)
 				
 				break;
 			case 0x8001: // Shared
-				ret = GetSharedContent(wadout, (u8*)key, content->index, content->hash, cm, content_map_items);
+				ret = GetSharedContent(wadout, key, content->index, content->hash, cm, content_map_items);
 				break;
 			default:
 				printf("Unknown content type. Aborting mission...\n");
@@ -2707,7 +2702,7 @@ s32 Content_bin_Dump(FILE *cnt_bin, char* path)
 	/* Get Title Key */
 	printf("Decrypting AES Title Key... ");
 	logfile("Decrypting AES Title Key... ");
-	ret = get_title_key(titleID, p_tik, (u8 *)key);
+	ret = get_title_key(titleID, p_tik, key);
 	free(p_tik);
 	
 	if (ret < 0)
@@ -2750,10 +2745,10 @@ s32 Content_bin_Dump(FILE *cnt_bin, char* path)
 			case 0x0001: // Normal
 			case 0x4001: // DLC, I'm not sure if this type of content gets included or not, but let's stay on the safe side
 				printf("Adding regular content %08lx... ", content->cid);
-				ret = GetContentFromCntBin(cnt_bin, wadout, content->index, (u32)content->size, (u8*)key, content->hash);
+				ret = GetContentFromCntBin(cnt_bin, wadout, content->index, (u32)content->size, key, content->hash);
 				break;
 			case 0x8001: // Shared, they don't get included in the content.bin file
-				ret = GetSharedContent(wadout, (u8*)key, content->index, content->hash, cm, content_map_items);
+				ret = GetSharedContent(wadout, key, content->index, content->hash, cm, content_map_items);
 				break;
 			default:
 				printf("Unknown content type. Aborting mission...\n");
@@ -3555,7 +3550,7 @@ void yabdm_loop()
 	GetContentMap();
 	if (cm == NULL || content_map_size == 0)
 	{
-		printf("\n\nError loading '/shared1/content.map', size = 0.");
+		printf("\n\nError loading '/shared1/content.map', size = 0. ");
 		logfile("\r\nError loading '/shared1/content.map', size = 0.");
 		return;
 	}

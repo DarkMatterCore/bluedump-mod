@@ -7,7 +7,7 @@
 #include <runtimeiospatch.h>
 #include <malloc.h>
 
-#define VERSION "1.83"
+#define VERSION "1.84"
 
 #define MAXPATHLEN 256
 
