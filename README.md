@@ -56,6 +56,11 @@ Thanks to
 Changelog
 --------------
 
+**YABDM v1.85 (June 29th, 2018 - DarkMatterCore):**
+
+* Fixed building warnings and errors with latest devkitPro + libogc.
+* Increased path char array sizes to hopefully fix a storage corruption bug.
+
 **YABDM v1.84 (May 12th, 2017 - DarkMatterCore):**
 
 * Fixed sorting method for the IOS selection screen. IOS version numbers are now properly displayed.

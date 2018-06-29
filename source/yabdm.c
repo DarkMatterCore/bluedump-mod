@@ -1623,7 +1623,7 @@ s32 dumpfolder(char source[1024], char destination[1024])
 	int i;
 	u32 tcnt;
 	s32 ret;
-	char path[1024], path2[1024];
+	char path[2048], path2[2048];
 	dirent_t *dir = NULL;
 	
 	ret = getdir_info(source, &dir, &tcnt);
@@ -1802,7 +1802,7 @@ s32 extract_savedata(u64 titleID)
 {
 	s32 ret;
 	char *id = GetASCII(TITLE_LOWER(titleID));
-	char isfs_path[ISFS_MAXPATH], dev_path[MAXPATHLEN]; // source, destination
+	char isfs_path[1024], dev_path[1024]; // source, destination
 	
 	logfile("Extracting title %08lx-%08lx...\r\n", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
 	snprintf(isfs_path, MAX_CHARACTERS(isfs_path), "/title/%08lx/%08lx/data", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
