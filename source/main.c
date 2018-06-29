@@ -2,7 +2,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <gccore.h>
-#include <ogcsys.h>
 #include <network.h>
 
 #include "yabdm.h"

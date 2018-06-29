@@ -16,7 +16,7 @@
 #define DI_BUTTONS_HELD		1
 
 #define resetscreen() printf("\x1b[2J")
-#define IsWiiU() ((*(vu32*)(0xCD8005A0) >> 16 ) == 0xCAFE)
+//#define IsWiiU() ((*(vu32*)(0xCD8005A0) >> 16 ) == 0xCAFE)
 
 #define ARROW " \x10"
 #define DEVICE(x) (((x) == 0) ? (isSD ? "sd" : "usb") : (isSD ? "SD" : "USB"))
@@ -27,6 +27,8 @@
 #define TITLE_ID(x,y)		(((u64)(x) << 32) | (y))
 
 #define IsHermesIOS(ios) ((ios) == 202 || (ios) == 222 || (ios) == 223 || (ios) == 224 || (ios) == 225)
+
+#define TITLEID_200			0x0000000100000200ll // IOS512
 
 typedef struct map_entry
 {
@@ -43,6 +45,7 @@ bool SDmnt, USBmnt, isSD, isUSB2, __debug, __wiilight, vwii, netw_init;
 
 char launch_path[MAXPATHLEN];
 
+bool IsWiiU(void);
 u32 __fread(void *out, u32 size, u32 cnt, FILE *src);
 u32 __fwrite(const void *src, u32 size, u32 cnt, FILE *out);
 bool is_empty(void *buf, u32 size);

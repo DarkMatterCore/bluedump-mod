@@ -9,7 +9,6 @@
 
 #include <stdio.h>
 #include <string.h>
-#include <ogcsys.h>
 #include <stdlib.h>
 #include <network.h>
 
@@ -270,7 +269,7 @@ s32 ReadNetwork(FILE *file, char NETWORK_PATH[1024], char HOSTNAME[1024])
 		if (blksize > len - cnt) blksize = len - cnt;
 		
 		time(&end);
-		sprintf(speed, "%ld", ((cnt / 1024) + 1)/(end - start));
+		sprintf(speed, "%ld", ((cnt / 1024) + 1)/(u32)(end - start));
 		
 		Con_ClearLine();
 		printf("\t- Downloading %ld KB @ %s KB/s. Progress: %ld KB (%ld%%).", (len / 1024) + 1, speed, (cnt / 1024) + 1, PERCENT);

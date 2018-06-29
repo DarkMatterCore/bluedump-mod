@@ -12,7 +12,6 @@
 
 #include <stdio.h>
 #include <string.h>
-#include <ogcsys.h>
 #include <stdlib.h>
 #include <sys/errno.h>
 #include <gccore.h>
@@ -34,7 +33,7 @@ const u8 sd_key[16] = { 0xab, 0x01, 0xb9, 0xd8, 0xe1, 0x62, 0x2b, 0x08, 0xaf, 0x
 const u8 sd_iv[16] = { 0x21, 0x67, 0x12, 0xe6, 0xaa, 0x1f, 0x68, 0x9f, 0x95, 0xc5, 0xa2, 0x23, 0x24, 0xdc, 0x6a, 0x98 };
 
 u8 region;
-char titlename[64], ascii_id[5];
+char titlename[256], tmpTitlename[128], ascii_id[5];
 bool ftik = false, ftmd = false, change_region = false, ascii = false, isDLC = false;
 
 bool MakeDir(const char *Path)
@@ -153,7 +152,7 @@ s32 getdir_info(char *path, dirent_t **ent, u32 *cnt)
 {
 	s32 res;
 	u32 num = 0;
-	char pbuf[ISFS_MAXPATH + 1], ebuf[ISFS_MAXPATH + 1];
+	char pbuf[(ISFS_MAXPATH * 2) + 1], ebuf[ISFS_MAXPATH + 1];
 	
 	s32 i, j, k;
 	
@@ -197,7 +196,12 @@ s32 getdir_info(char *path, dirent_t **ent, u32 *cnt)
 	*cnt = num;
 	
 	/* Avoid a possible buffer overflow by freeing the entry buffer before reusing it */
-	if (*ent != NULL) free(*ent);
+	if (*ent != NULL)
+	{
+		free(*ent);
+		*ent = NULL;
+	}
+	
 	*ent = allocate_memory(sizeof(dirent_t) * num);
 	if (*ent == NULL)
 	{
@@ -303,7 +307,7 @@ s32 read_title_name(u64 titleid, bool get_description)
 	s32 ret, cfd;
 	u32 num, cnt;
 	dirent_t *list = NULL;
-	char path[ISFS_MAXPATH] ATTRIBUTE_ALIGN(32);
+	char path[ISFS_MAXPATH * 2] ATTRIBUTE_ALIGN(32);
 	static fstats status ATTRIBUTE_ALIGN(32);
 	
 	u8 wibn_magic[4] = { 0x57, 0x49, 0x42, 0x4E };
@@ -432,7 +436,11 @@ s32 read_title_name(u64 titleid, bool get_description)
 					{
 						char description[64];
 						__convertWiiString(description, dlc_data->desc, 0x40);
-						if (strlen(description) > 1) snprintf(titlename, MAX_CHARACTERS(titlename), "%s [%s]", titlename, description);
+						if (strlen(description) > 1)
+						{
+							snprintf(tmpTitlename, MAX_CHARACTERS(tmpTitlename), " [%s]", description);
+							strcat(titlename, tmpTitlename);
+						}
 					}
 					
 					free(dlc_data);
@@ -537,7 +545,11 @@ s32 read_save_name(u64 titleid, bool get_description)
 	{
 		char description[64];
 		__convertWiiString(description, save_data->desc, 0x40);
-		if (strlen(description) > 1) snprintf(titlename, MAX_CHARACTERS(titlename), "%s [%s]", titlename, description);
+		if (strlen(description) > 1)
+		{
+			snprintf(tmpTitlename, MAX_CHARACTERS(tmpTitlename), " [%s]", description);
+			strcat(titlename, tmpTitlename);
+		}
 	}
 	
 	free(save_data);
@@ -702,7 +714,7 @@ s32 read_isfs(char *path, u8 **out, u32 *size)
 void zero_sig(signed_blob *sig)
 {
 	u8 *sig_ptr = (u8 *)sig;
-	memset(sig_ptr + 4, 0, SIGNATURE_SIZE(sig)-4);
+	memset(sig_ptr + 4, 0, SIGNATURE_SIZE(sig) - 4);
 }
 
 void brute_tmd(tmd *p_tmd)
@@ -828,6 +840,8 @@ s32 GetTMD(FILE *f, u64 id, signed_blob **tmd, bool have_pl)
 		s32 cfd = ISFS_Open(orig_tmd, ISFS_OPEN_READ);
 		if (cfd >= 0)
 		{
+			ISFS_Close(cfd);
+			
 			u8 *buffer = NULL;
 			ret = read_isfs(orig_tmd, &buffer, &tmd_size);
 			if (ret < 0)
@@ -1325,7 +1339,7 @@ s32 getdir_device(char *path, dirent_t **ent, u32 *cnt)
 	u32 i = 0;
 	DIR *dip;
     struct dirent *dit;
-	char pbuf[ISFS_MAXPATH + 1] = {0};
+	char pbuf[1024] = {0};
 	
 	if ((dip = opendir(path)) == NULL)
     {
@@ -1345,7 +1359,12 @@ s32 getdir_device(char *path, dirent_t **ent, u32 *cnt)
 	
 	rewinddir(dip);
 	
-	if (*ent) free(*ent);
+	if (*ent)
+	{
+		free(*ent);
+		*ent = NULL;
+	}
+	
 	*ent = allocate_memory(sizeof(dirent_t) * i);
 	if (*ent == NULL)
 	{
@@ -1802,7 +1821,7 @@ s32 extract_savedata(u64 titleID)
 	{
 		/* Dump the title.tmd file */
 		snprintf(isfs_path, MAX_CHARACTERS(isfs_path), "/title/%08lx/%08lx/content/title.tmd", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
-		strncat(dev_path, "/title.tmd", 10);
+		strcat(dev_path, "/title.tmd");
 		
 		logfile("\r\ntitle.tmd path = %s.\r\n", isfs_path);
 		logfile("path_out = %s.\r\n", dev_path);
@@ -1829,7 +1848,7 @@ s32 install_savedata(u64 titleID)
 	s32 ret;
 	bool found = false;
 	char *id = GetASCII(TITLE_LOWER(titleID));
-	char dev_path[MAXPATHLEN], isfs_path[ISFS_MAXPATH]; // source, destination
+	char dev_path[MAXPATHLEN * 2], isfs_path[ISFS_MAXPATH]; // source, destination
 	
 	logfile("Installing title %08lx-%08lx...\r\n", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
 	snprintf(isfs_path, MAX_CHARACTERS(isfs_path), "/title/%08lx/%08lx/data", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
@@ -1868,7 +1887,11 @@ s32 install_savedata(u64 titleID)
 		return -1;
 	} else {
 		logfile("Savedata found: '%s'.\r\n", dir[i].name);
-		snprintf(dev_path, MAX_CHARACTERS(dev_path), "%s/%s", dev_path, dir[i].name);
+		
+		char tmpPath[MAXPATHLEN];
+		snprintf(tmpPath, MAX_CHARACTERS(tmpPath), "/%s", dir[i].name);
+		strcat(dev_path, tmpPath);
+		
 		logfile("%s path is '%s'.\r\n", DEVICE(1), dev_path);
 	}
 	
@@ -1877,7 +1900,7 @@ s32 install_savedata(u64 titleID)
 	{
 		/* Flash the title.tmd file */
 		snprintf(isfs_path, MAX_CHARACTERS(isfs_path), "/title/%08lx/%08lx/content/title.tmd", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
-		strncat(dev_path, "/title.tmd", 10);
+		strcat(dev_path, "/title.tmd");
 		
 		logfile("\r\ntitle.tmd path = %s.\r\n", dev_path);
 		logfile("path_out = %s.\r\n", isfs_path);
@@ -2072,8 +2095,8 @@ char *GetSysMenuVersion(u16 version)
 			} else {
 				snprintf(titlename, MAX_CHARACTERS(titlename), "v%.1f", SysMenuVersion);
 				
-				if (SysMenuVersion != 1.0f) strncat(titlename, &sm_region, 1);
-				if (version == 54448 || version == 54449 || version == 54450 || version == 54454) strncat(titlename, " (mauifrog's mod)", 17);
+				if (SysMenuVersion != 1.0f) strcat(titlename, &sm_region);
+				if (version == 54448 || version == 54449 || version == 54450 || version == 54454) strcat(titlename, " (mauifrog's mod)");
 			}
 		} else {
 			if (vwii)
@@ -2082,7 +2105,7 @@ char *GetSysMenuVersion(u16 version)
 			} else {
 				snprintf(titlename, MAX_CHARACTERS(titlename), "v%.1f", SysMenuVersion);
 				
-				if (version == 54448 || version == 54449 || version == 54450 || version == 54454) strncat(titlename, " (mauifrog's mod)", 17);
+				if (version == 54448 || version == 54449 || version == 54450 || version == 54454) strcat(titlename, " (mauifrog's mod)");
 			}
 		}
 	}
@@ -2986,7 +3009,7 @@ s32 dump_menu(char *cpath, int cline, dirent_t *ent)
 		if (pressed == WPAD_BUTTON_A) break;
 	}
 	
-	char some[ISFS_MAXPATH + 1];
+	char some[(ISFS_MAXPATH * 2) + 1];
 	snprintf(some, MAX_CHARACTERS(some), "%s/%s", cpath, ent[cline].name);
 	
 	logfile("\r\n[DUMP_MENU] Selected item: %s.\r\n", some);
@@ -3064,17 +3087,17 @@ s32 dump_menu(char *cpath, int cline, dirent_t *ent)
 				{
 					if (ftik && ftmd)
 					{
-						strncat(dump_path, " (ftmd+ftik).wad", 16);
+						strcat(dump_path, " (ftmd+ftik).wad");
 					} else
 					if (!ftik && ftmd)
 					{
-						strncat(dump_path, " (ftmd).wad", 11);
+						strcat(dump_path, " (ftmd).wad");
 					} else
 					if (ftik && !ftmd)
 					{
-						strncat(dump_path, " (ftik).wad", 11);
+						strcat(dump_path, " (ftik).wad");
 					} else {
-						strncat(dump_path, ".wad", 4);
+						strcat(dump_path, ".wad");
 					}
 					
 					ret = Wad_Dump(titleID, dump_path);
@@ -3154,17 +3177,17 @@ s32 dump_menu_sd(char *cnt_path)
 			
 			if (ftik && ftmd)
 			{
-				strncat(dump_path, " (ftmd+ftik).wad", 16);
+				strcat(dump_path, " (ftmd+ftik).wad");
 			} else
 			if (!ftik && ftmd)
 			{
-				strncat(dump_path, " (ftmd).wad", 11);
+				strcat(dump_path, " (ftmd).wad");
 			} else
 			if (ftik && !ftmd)
 			{
-				strncat(dump_path, " (ftik).wad", 11);
+				strcat(dump_path, " (ftik).wad");
 			} else {
-				strncat(dump_path, ".wad", 4);
+				strcat(dump_path, ".wad");
 			}
 			
 			ret = Content_bin_Dump(cnt_bin, dump_path);
@@ -3191,7 +3214,7 @@ s32 dump_menu_sd(char *cnt_path)
 s32 sd_browser()
 {
 	s32 ret;
-	char tmp[64];
+	char tmp[128];
 	dirent_t* ent = NULL;
 	u32 i, lcnt = 0, cline = 0;
 	
@@ -3559,8 +3582,7 @@ void yabdm_loop()
 	
 	s32 ret;
 	int i = 0;
-	char tmp[ISFS_MAXPATH + 1];
-	char cpath[ISFS_MAXPATH + 1];
+	char cpath[1024], tmp[512];
 	dirent_t* ent = NULL;
 	u32 pressed, lcnt = 0, cline = 0;
 	
@@ -3651,8 +3673,8 @@ void yabdm_loop()
 			// Is the current entry a dir?
 			if (lcnt != 0 && ent[cline].type == DIRENT_T_DIR)
 			{
-				snprintf(tmp, MAX_CHARACTERS(tmp), cpath);
-				snprintf(cpath, MAX_CHARACTERS(cpath), "%s/%s", tmp, ent[cline].name);
+				snprintf(tmp, MAX_CHARACTERS(tmp), "/%s", ent[cline].name);
+				strcat(cpath, tmp);
 				
 				ret = getdir_info(cpath, &ent, &lcnt);
 				if (ret >= 0)

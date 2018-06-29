@@ -22,6 +22,20 @@ static vu32 *_wiilight_reg = (u32*)0xCD0000C0;
 
 const char *languages[10] = { "Japanese", "English", "German", "French", "Spanish", "Italian", "Dutch", "Simp. Chinese", "Trad. Chinese", "Korean" };
 
+bool IsWiiU(void)
+{
+	s32 ret;
+	u32 x;
+	
+	ret = ES_GetTitleContentsCount(TITLEID_200, &x);
+	
+	if (ret < 0) return false; // title was never installed
+	
+	if (x <= 0) return false; // title was installed but deleted via Channel Management
+	
+	return true;
+}
+
 void WiiDiscLight(bool turn_on)
 {
 	if (__wiilight)
