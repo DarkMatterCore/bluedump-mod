@@ -27,7 +27,6 @@
 #include "otp.h"
 #include "../build/cert_sys.h"
 
-const u8 vwii_commonkey[16] = { 0x30, 0xbf, 0xc7, 0x6e, 0x7c, 0x19, 0xaf, 0xbb, 0x23, 0x16, 0x33, 0x30, 0xce, 0xd7, 0xc2, 0x8d };
 const u8 commonkey[16] = { 0xeb, 0xe4, 0x2a, 0x22, 0x5e, 0x85, 0x93, 0xe4, 0x48, 0xd9, 0xc5, 0x45, 0x73, 0x81, 0xaa, 0xf7 };
 const u8 sd_key[16] = { 0xab, 0x01, 0xb9, 0xd8, 0xe1, 0x62, 0x2b, 0x08, 0xaf, 0xba, 0xd8, 0x4d, 0xbf, 0xc2, 0xa5, 0x5d };
 const u8 sd_iv[16] = { 0x21, 0x67, 0x12, 0xe6, 0xaa, 0x1f, 0x68, 0x9f, 0x95, 0xc5, 0xa2, 0x23, 0x24, 0xdc, 0x6a, 0x98 };
@@ -35,6 +34,8 @@ const u8 sd_iv[16] = { 0x21, 0x67, 0x12, 0xe6, 0xaa, 0x1f, 0x68, 0x9f, 0x95, 0xc
 u8 region;
 char titlename[256], tmpTitlename[128], ascii_id[5];
 bool ftik = false, ftmd = false, change_region = false, ascii = false, isDLC = false;
+
+wadHeader *header = NULL;
 
 bool MakeDir(const char *Path)
 {
@@ -125,8 +126,8 @@ u16 get_version(u64 titleid)
 	ret = ES_GetStoredTMDSize(titleid, &tmd_size);
 	if (ret < 0)
 	{
-		//printf("ES_GetStoredTMDSize for '%08lx-%08lx' failed (%ld).\n", TITLE_UPPER(titleid), TITLE_LOWER(titleid), ret);
-		logfile("ES_GetStoredTMDSize for '%08lx-%08lx' failed (%ld).\r\n", TITLE_UPPER(titleid), TITLE_LOWER(titleid), ret);
+		//printf("ES_GetStoredTMDSize for '%08x-%08x' failed (%d).\n", TITLE_UPPER(titleid), TITLE_LOWER(titleid), ret);
+		logfile("ES_GetStoredTMDSize for '%08x-%08x' failed (%d).\r\n", TITLE_UPPER(titleid), TITLE_LOWER(titleid), ret);
 		return 0;
 	}
 	
@@ -135,8 +136,8 @@ u16 get_version(u64 titleid)
 	ret = ES_GetStoredTMD(titleid, tmdbuf, tmd_size);
 	if (ret < 0)
 	{
-		//printf("ES_GetStoredTMD for '%08lx-%08lx' failed (%ld).\n", TITLE_UPPER(titleid), TITLE_LOWER(titleid), ret);
-		logfile("ES_GetStoredTMD for '%08lx-%08lx' failed (%ld).\r\n", TITLE_UPPER(titleid), TITLE_LOWER(titleid), ret);
+		//printf("ES_GetStoredTMD for '%08x-%08x' failed (%d).\n", TITLE_UPPER(titleid), TITLE_LOWER(titleid), ret);
+		logfile("ES_GetStoredTMD for '%08x-%08x' failed (%d).\r\n", TITLE_UPPER(titleid), TITLE_LOWER(titleid), ret);
 		free(tmdbuf);
 		return 0;
 	}
@@ -162,8 +163,8 @@ s32 getdir_info(char *path, dirent_t **ent, u32 *cnt)
 	res = ISFS_ReadDir(path, NULL, &num);
 	if (res != ISFS_OK)
 	{
-		//printf("Error: could not get dir entry count! (result: %ld)\n", res);
-		logfile("\r\nError: could not get dir entry count! (result: %ld).\r\n", res);
+		//printf("Error: could not get dir entry count! (result: %d)\n", res);
+		logfile("\r\nError: could not get dir entry count! (result: %d).\r\n", res);
 		return -1;
 	}
 	
@@ -187,8 +188,8 @@ s32 getdir_info(char *path, dirent_t **ent, u32 *cnt)
 	res = ISFS_ReadDir(path, nbuf, &num);
 	if (res != ISFS_OK)
 	{
-		//printf("Error: could not get name list! (result: %ld)\n", res);
-		logfile("\r\nError: could not get name list! (result: %ld).\r\n", res);
+		//printf("Error: could not get name list! (result: %d)\n", res);
+		logfile("\r\nError: could not get name list! (result: %d).\r\n", res);
 		return -1;
 	}
 	
@@ -323,7 +324,7 @@ s32 read_title_name(u64 titleid, bool get_description)
 	
 	memset(buffer, 0x00, sizeof(IMET));
 	
-	snprintf(path, MAX_CHARACTERS(path), "/title/%08lx/%08lx/content", TITLE_UPPER(titleid), TITLE_LOWER(titleid));
+	snprintf(path, MAX_CHARACTERS(path), "/title/%08x/%08x/content", TITLE_UPPER(titleid), TITLE_LOWER(titleid));
 	snprintf(titlename, MAX_CHARACTERS(titlename), "Channel/Title deleted from Wii Menu? (couldn't get info)");
 	
 	ret = getdir_info(path, &list, &num);
@@ -342,21 +343,21 @@ s32 read_title_name(u64 titleid, bool get_description)
 		if (strcasecmp(list[cnt].name + strlen(list[cnt].name) - 4, ".app") == 0) 
 		{
 			memset(buffer, 0x00, 4);
-			snprintf(path, MAX_CHARACTERS(path), "/title/%08lx/%08lx/content/%s", TITLE_UPPER(titleid), TITLE_LOWER(titleid), list[cnt].name);
+			snprintf(path, MAX_CHARACTERS(path), "/title/%08x/%08x/content/%s", TITLE_UPPER(titleid), TITLE_LOWER(titleid), list[cnt].name);
 			
 			cfd = ISFS_Open(path, ISFS_OPEN_READ);
 			if (cfd < 0)
 			{
-				//printf("ISFS_Open for '%s' failed (%ld).\n", path, cfd);
-				logfile("ISFS_Open for '%s' failed (%ld).\r\n", path, cfd);
+				//printf("ISFS_Open for '%s' failed (%d).\n", path, cfd);
+				logfile("ISFS_Open for '%s' failed (%d).\r\n", path, cfd);
 				continue;
 			}
 			
 			ret = ISFS_GetFileStats(cfd, &status);
 			if (ret < 0)
 			{
-				//printf("ISFS_GetFileStats(fd) returned %ld.\n", ret);
-				logfile("ISFS_GetFileStats(fd) returned %ld.\r\n", ret);
+				//printf("ISFS_GetFileStats(fd) returned %d.\n", ret);
+				logfile("ISFS_GetFileStats(fd) returned %d.\r\n", ret);
 				ISFS_Close(cfd);
 				continue;
 			}
@@ -368,8 +369,8 @@ s32 read_title_name(u64 titleid, bool get_description)
 				ret = ISFS_Read(cfd, buffer, 4);
 				if (ret < 0)
 				{
-					//printf("ISFS_Read(wibn_magic) returned %ld.\n", ret);
-					logfile("ISFS_Read(wibn_magic) returned %ld.\r\n", ret);
+					//printf("ISFS_Read(wibn_magic) returned %d.\n", ret);
+					logfile("ISFS_Read(wibn_magic) returned %d.\r\n", ret);
 					ISFS_Close(cfd);
 					continue;
 				}
@@ -384,8 +385,8 @@ s32 read_title_name(u64 titleid, bool get_description)
 					ret = ISFS_Read(cfd, buffer, 4);
 					if (ret < 0)
 					{
-						//printf("ISFS_Read(imet_magic) returned %ld.\n", ret);
-						logfile("ISFS_Read(imet_magic) returned %ld.\r\n", ret);
+						//printf("ISFS_Read(imet_magic) returned %d.\n", ret);
+						logfile("ISFS_Read(imet_magic) returned %d.\r\n", ret);
 						ISFS_Close(cfd);
 						continue;
 					}
@@ -404,8 +405,8 @@ s32 read_title_name(u64 titleid, bool get_description)
 				ret = ISFS_Read(cfd, buffer, (is_dlc ? sizeof(WIBN) : sizeof(IMET)));
 				if (ret < 0)
 				{
-					//printf("ISFS_Read(buffer) returned %ld.\n", ret);
-					logfile("ISFS_Read(buffer) returned %ld.\r\n", ret);
+					//printf("ISFS_Read(buffer) returned %d.\n", ret);
+					logfile("ISFS_Read(buffer) returned %d.\r\n", ret);
 					ISFS_Close(cfd);
 					free(list);
 					free(buffer);
@@ -507,14 +508,14 @@ s32 read_save_name(u64 titleid, bool get_description)
 	s32 cfd, ret;
     char path[ISFS_MAXPATH] ATTRIBUTE_ALIGN(32);
 	
-	snprintf(path, MAX_CHARACTERS(path), "/title/%08lx/%08lx/data/banner.bin", TITLE_UPPER(titleid), TITLE_LOWER(titleid));
+	snprintf(path, MAX_CHARACTERS(path), "/title/%08x/%08x/data/banner.bin", TITLE_UPPER(titleid), TITLE_LOWER(titleid));
 	snprintf(titlename, MAX_CHARACTERS(titlename), "Channel/Title deleted from Wii Menu? (couldn't get info)");
 	
 	cfd = ISFS_Open(path, ISFS_OPEN_READ);
 	if (cfd < 0)
 	{
-		//printf("ISFS_Open for '%s' failed (%ld).\n", path, cfd);
-		logfile("ISFS_Open for '%s' failed (%ld).\r\n", path, cfd);
+		//printf("ISFS_Open for '%s' failed (%d).\n", path, cfd);
+		logfile("ISFS_Open for '%s' failed (%d).\r\n", path, cfd);
 		return -1;
 	}
 	
@@ -529,8 +530,8 @@ s32 read_save_name(u64 titleid, bool get_description)
 	ret = ISFS_Read(cfd, save_data, sizeof(WIBN));
 	if (ret < 0)
 	{
-		//printf("ISFS_Read for '%s' failed (%ld).\n", path, ret);
-		logfile("ISFS_Read for '%s' failed (%ld).\r\n", path, ret);
+		//printf("ISFS_Read for '%s' failed (%d).\n", path, ret);
+		logfile("ISFS_Read for '%s' failed (%d).\r\n", path, ret);
 		ISFS_Close(cfd);
 		free(save_data);
 		return -1;
@@ -650,16 +651,16 @@ s32 read_isfs(char *path, u8 **out, u32 *size)
 	fd = ISFS_Open(path, ISFS_OPEN_READ);
 	if (fd < 0)
 	{
-		//printf("ISFS_Open for '%s' returned %ld.\n", path, fd);
-		logfile("ISFS_Open for '%s' returned %ld.\r\n", path, fd);
+		//printf("ISFS_Open for '%s' returned %d.\n", path, fd);
+		logfile("ISFS_Open for '%s' returned %d.\r\n", path, fd);
 		return -1;
 	}
 	
 	ret = ISFS_GetFileStats(fd, &status);
 	if (ret < 0)
 	{
-		//printf("\nISFS_GetFileStats(fd) returned %ld.\n", ret);
-		logfile("ISFS_GetFileStats(fd) returned %ld.\r\n", ret);
+		//printf("\nISFS_GetFileStats(fd) returned %d.\n", ret);
+		logfile("ISFS_GetFileStats(fd) returned %d.\r\n", ret);
 		ISFS_Close(fd);
 		return -1;
 	}
@@ -671,7 +672,7 @@ s32 read_isfs(char *path, u8 **out, u32 *size)
 	}
 	
 	*size = status.file_length;
-	logfile("Size = %lu bytes.\r\n", *size);
+	logfile("Size = %u bytes.\r\n", *size);
 	
 	*out = allocate_memory(*size);
 	if (*out == NULL) 
@@ -696,8 +697,8 @@ s32 read_isfs(char *path, u8 **out, u32 *size)
 		ret = ISFS_Read(fd, *out + writeindex, blksize);
 		if (ret < 0) 
 		{
-			//printf("\nISFS_Read(%ld, %lu) returned %ld.\n", fd, blksize, ret);
-			logfile("\r\nISFS_Read(%ld, %lu) returned %ld.\r\n", fd, blksize, ret);
+			//printf("\nISFS_Read(%d, %u) returned %d.\n", fd, blksize, ret);
+			logfile("\r\nISFS_Read(%d, %u) returned %d.\r\n", fd, blksize, ret);
 			free(*out);
 			ISFS_Close(fd);
 			return -1;
@@ -852,16 +853,16 @@ s32 GetTMD(FILE *f, u64 id, signed_blob **tmd, bool have_pl)
 				*tmd = (signed_blob *)buffer;
 			}
 		} else {
-			printf("Error: Couldn't open original System Menu TMD! (cfd = %ld)", cfd);
-			logfile("Error: Couldn't open original System Menu TMD! (cfd = %ld)", cfd);
+			printf("Error: Couldn't open original System Menu TMD! (cfd = %d)", cfd);
+			logfile("Error: Couldn't open original System Menu TMD! (cfd = %d)", cfd);
 			return -1;
 		}
 	} else {
 		ret = ES_GetStoredTMDSize(id, &tmd_size);
 		if (ret < 0)
 		{
-			//printf("ES_GetStoredTMDSize for '%08lx-%08lx' failed (%ld).\n", TITLE_UPPER(id), TITLE_LOWER(id), ret);
-			logfile("ES_GetStoredTMDSize for '%08lx-%08lx' failed (%ld).\r\n", TITLE_UPPER(id), TITLE_LOWER(id), ret);
+			//printf("ES_GetStoredTMDSize for '%08x-%08x' failed (%d).\n", TITLE_UPPER(id), TITLE_LOWER(id), ret);
+			logfile("ES_GetStoredTMDSize for '%08x-%08x' failed (%d).\r\n", TITLE_UPPER(id), TITLE_LOWER(id), ret);
 			return -1;
 		}
 		
@@ -875,20 +876,20 @@ s32 GetTMD(FILE *f, u64 id, signed_blob **tmd, bool have_pl)
 		ret = ES_GetStoredTMD(id, *tmd, tmd_size);
 		if (ret < 0)
 		{
-			//printf("ES_GetStoredTMD for '%08lx-%08lx' failed (%ld).\n", TITLE_UPPER(id), TITLE_LOWER(id), ret);
-			logfile("ES_GetStoredTMD for '%08lx-%08lx' failed (%ld).\r\n", TITLE_UPPER(id), TITLE_LOWER(id), ret);
+			//printf("ES_GetStoredTMD for '%08x-%08x' failed (%d).\n", TITLE_UPPER(id), TITLE_LOWER(id), ret);
+			logfile("ES_GetStoredTMD for '%08x-%08x' failed (%d).\r\n", TITLE_UPPER(id), TITLE_LOWER(id), ret);
 			free(*tmd);
 			return -1;
 		}
 	}
 	
-	logfile("TMD size = %lu.\r\n", tmd_size);
+	logfile("TMD size = %u.\r\n", tmd_size);
 	header->tmd_len = tmd_size;
 	
 	if ((tmd_size % 64) != 0)
 	{
 		tmd_size = pad_data(*tmd, tmd_size, false);
-		logfile("Padded TMD size = %lu.\r\n", tmd_size);
+		logfile("Padded TMD size = %u.\r\n", tmd_size);
 	}
 	
 	/* Fakesign TMD if the user chose to */
@@ -906,7 +907,7 @@ s32 GetTicket(FILE *f, u64 id, signed_blob **tik)
 	u8 *buffer;
 	char path[ISFS_MAXPATH] = {0};
 	
-	snprintf(path, MAX_CHARACTERS(path), "/ticket/%08lx/%08lx.tik", TITLE_UPPER(id), TITLE_LOWER(id));
+	snprintf(path, MAX_CHARACTERS(path), "/ticket/%08x/%08x.tik", TITLE_UPPER(id), TITLE_LOWER(id));
 	
 	logfile("Ticket path is '%s'.\r\n", path);
 	s32 ret = read_isfs(path, &buffer, &tik_size);
@@ -916,7 +917,7 @@ s32 GetTicket(FILE *f, u64 id, signed_blob **tik)
 		
 		if (use_bootmii_data)
 		{
-			snprintf(path, MAX_CHARACTERS(path), "%s:/YABDM/Tickets/%08lx-%08lx.tik", DEVICE(0), TITLE_UPPER(id), TITLE_LOWER(id));
+			snprintf(path, MAX_CHARACTERS(path), "%s:/YABDM/Tickets/%08x-%08x.tik", DEVICE(0), TITLE_UPPER(id), TITLE_LOWER(id));
 			if (!create_folders(path)) return -1;
 			
 			FILE *dev_tik = fopen(path, "rb");
@@ -929,7 +930,7 @@ s32 GetTicket(FILE *f, u64 id, signed_blob **tik)
 			tik_size = ftell(dev_tik);
 			rewind(dev_tik);
 			
-			logfile("Ticket size: %lu bytes. ", tik_size);
+			logfile("Ticket size: %u bytes. ", tik_size);
 			
 			if (tik_size < 0x2A4)
 			{
@@ -966,13 +967,12 @@ s32 GetTicket(FILE *f, u64 id, signed_blob **tik)
 	if ((tik_size % 64) != 0)
 	{
 		tik_size = pad_data(buffer, tik_size, false);
-		logfile("Padded Ticket size = %lu.\r\n", tik_size);
+		logfile("Padded Ticket size = %u.\r\n", tik_size);
 	}
 	
 	/* Change the Common Key Index to 0x00 */
-	/* Useful to avoid installation errors with WADs dumped from a Korean Wii (0x01) */
-	/* vWii System Titles (0x02) will be dumped using the vWii Common Key, so we won't have to make this change */
-	if (buffer[0x1F1] != 0x00 && buffer[0x1F1] != 0x02)
+	/* Useful to avoid installation errors with WADs dumped from a Korean Wii (0x01) or vWii (0x02) */
+	if (buffer[0x1F1] > 0)
 	{
 		printf("\nSetting Common Key Index to 0x00 (was 0x%02x). ", buffer[0x1F1]);
 		logfile("Setting Common Key Index to 0x00 (was 0x%02x). ", buffer[0x1F1]);
@@ -1015,17 +1015,17 @@ s32 GetContent(FILE *f, u64 id, u32 content, u8* key, u16 index, u32 size, u8 *h
 	SHA1Context ctx;
 	SHA1Reset(&ctx);
 	
-	snprintf(path, MAX_CHARACTERS(path), "/title/%08lx/%08lx/content/%08lx.app", TITLE_UPPER(id), TITLE_LOWER(id), content);
-	logfile("Regular content path is '%s'.\r\nContent size: %lu bytes.\r\nTMD hash: ", path, size);
+	snprintf(path, MAX_CHARACTERS(path), "/title/%08x/%08x/content/%08x.app", TITLE_UPPER(id), TITLE_LOWER(id), content);
+	logfile("Regular content path is '%s'.\r\nContent size: %u bytes.\r\nTMD hash: ", path, size);
 	hex_key_dump(hash, 20);
 	logfile("\r\n");
 	
-	printf("Adding regular content %08lx.app... ", content);
+	printf("Adding regular content %08x.app... ", content);
 	
 	s32 fd = ISFS_Open(path, ISFS_OPEN_READ);
 	if (fd < 0)
 	{
-		logfile("ISFS_Open for '%s' returned %ld.\r\n", path, fd);
+		logfile("ISFS_Open for '%s' returned %d.\r\n", path, fd);
 		return fd;
 	}
 	
@@ -1097,7 +1097,7 @@ s32 GetContent(FILE *f, u64 id, u32 content, u8* key, u16 index, u32 size, u8 *h
 	
 	if (ret < 0) return ret;
 	
-	logfile("Content added successfully. Original content size: %lu bytes. size2: %lu bytes.\r\n", size, size2);
+	logfile("Content added successfully. Original content size: %u bytes. size2: %u bytes.\r\n", size, size2);
 	printf("done.\n");
 	
 	header->data_len += size2;
@@ -1123,7 +1123,7 @@ void GetContentMap()
 	
 	content_map_size = status.file_length;
 	
-	logfile("content.map size = %lu bytes.\r\nWriting '/shared1/content.map' to memory buffer... ", content_map_size);
+	logfile("content.map size = %u bytes.\r\nWriting '/shared1/content.map' to memory buffer... ", content_map_size);
 	buf = allocate_memory(content_map_size);
 	if (buf != NULL)
 	{
@@ -1161,7 +1161,7 @@ s32 GetSharedContent(FILE *f, u8* key, u16 index, u8* hash, map_entry_t *cm, u32
 			{
 				logfile("Padding decrypted data to a 16-byte boundary... ");
 				shared_size = pad_data(shared_buf, shared_size, true);
-				logfile("done. New size: %lu bytes.\r\n", shared_size);
+				logfile("done. New size: %u bytes.\r\n", shared_size);
 			}
 			
 			static u8 iv[16];
@@ -1180,7 +1180,7 @@ s32 GetSharedContent(FILE *f, u8* key, u16 index, u8* hash, map_entry_t *cm, u32
 			{
 				logfile("Padding encrypted data to a 64-byte boundary... ");
 				shared_size = pad_data(shared_buf, shared_size, false);
-				logfile("done. New size: %lu bytes.\r\n", shared_size);
+				logfile("done. New size: %u bytes.\r\n", shared_size);
 			}
 			
 			logfile("Writing... ");
@@ -1228,7 +1228,7 @@ s32 GetContentFromCntBin(FILE *cnt_bin, FILE *wadout, u16 index, u32 size, u8 *k
 	SHA1Context ctx;
 	SHA1Reset(&ctx);
 	
-	logfile("Content size: %lu bytes.\r\nTMD hash: ", size);
+	logfile("Content size: %u bytes.\r\nTMD hash: ", size);
 	hex_key_dump(hash, 20);
 	logfile("\r\n");
 	
@@ -1315,7 +1315,7 @@ s32 GetContentFromCntBin(FILE *cnt_bin, FILE *wadout, u16 index, u32 size, u8 *k
 	
 	if (ret < 0) return ret;
 	
-	logfile("Content added successfully. Original content size: %lu bytes. rounded_size: %lu bytes.\r\n", size, rounded_size);
+	logfile("Content added successfully. Original content size: %u bytes. rounded_size: %u bytes.\r\n", size, rounded_size);
 	printf("done.\n");
 	
 	header->data_len += rounded_size;
@@ -1413,8 +1413,8 @@ s32 dumpfile(char *source, char *destination)
 	int fd = ISFS_Open(source, ISFS_OPEN_READ);
 	if (fd < 0) 
 	{
-		//printf("\nError: ISFS_OpenFile for '%s' returned %ld.\n", source, fd);
-		logfile("\r\nError: ISFS_OpenFile for '%s' returned %ld.\r\n", source, fd);
+		//printf("\nError: ISFS_OpenFile for '%s' returned %d.\n", source, fd);
+		logfile("\r\nError: ISFS_OpenFile for '%s' returned %d.\r\n", source, fd);
 		free(buffer);
 		return -1;
 	}
@@ -1432,8 +1432,8 @@ s32 dumpfile(char *source, char *destination)
 	ret = ISFS_GetFileStats(fd, &status);
 	if (ret < 0)
 	{
-		//printf("\nISFS_GetFileStats(fd) returned %ld.\n", ret);
-		logfile("\r\nISFS_GetFileStats(fd) returned %ld.\r\n", ret);
+		//printf("\nISFS_GetFileStats(fd) returned %d.\n", ret);
+		logfile("\r\nISFS_GetFileStats(fd) returned %d.\r\n", ret);
 		ISFS_Close(fd);
 		fclose(file);
 		free(buffer);
@@ -1442,8 +1442,8 @@ s32 dumpfile(char *source, char *destination)
 	}
 	
 	Con_ClearLine();
-	printf("Dumping '%s' / Size = %lu KB", source, (status.file_length / 1024)+1);
-	logfile("Dumping '%s' / Size = %lu KB", source, (status.file_length / 1024)+1);
+	printf("Dumping '%s' / Size = %u KB", source, (status.file_length / 1024)+1);
+	logfile("Dumping '%s' / Size = %u KB", source, (status.file_length / 1024)+1);
 	
 	u32 size, restsize = status.file_length;
 	while (restsize > 0)
@@ -1458,8 +1458,8 @@ s32 dumpfile(char *source, char *destination)
 		ret = ISFS_Read(fd, buffer, size);
 		if (ret < 0)
 		{
-			//printf("\nISFS_Read(%ld, %p, %lu) returned %ld.\n", fd, buffer, size, ret);
-			logfile("\r\nISFS_Read(%ld, %p, %lu) returned %ld.\r\n", fd, buffer, size, ret);
+			//printf("\nISFS_Read(%d, %p, %u) returned %d.\n", fd, buffer, size, ret);
+			logfile("\r\nISFS_Read(%d, %p, %u) returned %d.\r\n", fd, buffer, size, ret);
 			ISFS_Close(fd);
 			fclose(file);
 			free(buffer);
@@ -1470,8 +1470,8 @@ s32 dumpfile(char *source, char *destination)
 		ret = __fwrite(buffer, size, 1, file);
 		if (ret != 1) 
 		{
-			//printf("\nfwrite error: %ld.\n", ret);
-			logfile("\r\nfwrite error: %ld.\r\n", ret);
+			//printf("\nfwrite error: %d.\n", ret);
+			logfile("\r\nfwrite error: %d.\r\n", ret);
 			ISFS_Close(fd);
 			fclose(file);
 			free(buffer);
@@ -1517,8 +1517,8 @@ s32 flash(char* source, char* destination)
 	ret = ISFS_Delete(destination);
 	if (ret < 0)
 	{
-		printf("ISFS_Delete('%s') returned %ld.\n", destination, ret);
-		logfile("ISFS_Delete('%s') returned %ld.\r\n", destination, ret);
+		printf("ISFS_Delete('%s') returned %d.\n", destination, ret);
+		logfile("ISFS_Delete('%s') returned %d.\r\n", destination, ret);
 		fclose(file);
 		free(buffer);
 		return -1;
@@ -1527,8 +1527,8 @@ s32 flash(char* source, char* destination)
 	ret = ISFS_CreateFile(destination, 0, 3, 3, 3);
 	if (ret < 0)
 	{
-		printf("ISFS_CreateFile('%s', 0, 3, 3, 3) returned %ld.\n", destination, ret);
-		logfile("ISFS_CreateFile('%s', 0, 3, 3, 3) returned %ld.\r\n", destination, ret);
+		printf("ISFS_CreateFile('%s', 0, 3, 3, 3) returned %d.\n", destination, ret);
+		logfile("ISFS_CreateFile('%s', 0, 3, 3, 3) returned %d.\r\n", destination, ret);
 		fclose(file);
 		free(buffer);
 		return -1;
@@ -1537,16 +1537,16 @@ s32 flash(char* source, char* destination)
 	nandfile = ISFS_Open(destination, ISFS_OPEN_RW);
 	if (nandfile < 0)
 	{
-		//printf("ISFS_Open('%s', WRITE) error: %ld.\n", destination, nandfile);
-		logfile("ISFS_Open('%s', WRITE) error: %ld.\r\n", destination, nandfile);
+		//printf("ISFS_Open('%s', WRITE) error: %d.\n", destination, nandfile);
+		logfile("ISFS_Open('%s', WRITE) error: %d.\r\n", destination, nandfile);
 		fclose(file);
 		free(buffer);
 		return -1;
 	}
 	
 	Con_ClearLine();
-	printf("Flashing '%s' / Size = %lu KB", destination, (filesize / 1024)+1);
-	logfile("Flashing '%s' / Size = %lu KB", destination, (filesize / 1024)+1);
+	printf("Flashing '%s' / Size = %u KB", destination, (filesize / 1024)+1);
+	logfile("Flashing '%s' / Size = %u KB", destination, (filesize / 1024)+1);
 	
 	u32 size, restsize = filesize;
 	while (restsize > 0)
@@ -1561,8 +1561,8 @@ s32 flash(char* source, char* destination)
 		ret = __fread(buffer, size, 1, file);
 		if (ret != 1) 
 		{
-			//printf("Error reading data from '%s' (ret = %ld).\n", source, ret);
-			logfile("Error reading data from '%s' (ret = %ld).\r\n", source, ret);
+			//printf("Error reading data from '%s' (ret = %d).\n", source, ret);
+			logfile("Error reading data from '%s' (ret = %d).\r\n", source, ret);
 			ISFS_Close(nandfile);
 			ISFS_Delete(destination);
 			fclose(file);
@@ -1573,8 +1573,8 @@ s32 flash(char* source, char* destination)
 		ret = ISFS_Write(nandfile, buffer, size);
 		if (!ret) 
 		{
-			//printf("ISFS_Write('%s') error: %ld.\n", destination, ret);
-			logfile("ISFS_Write('%s') error: %ld.\r\n", destination, ret);
+			//printf("ISFS_Write('%s') error: %d.\n", destination, ret);
+			logfile("ISFS_Write('%s') error: %d.\r\n", destination, ret);
 			ISFS_Close(nandfile);
 			ISFS_Delete(destination);
 			fclose(file);
@@ -1592,8 +1592,8 @@ s32 flash(char* source, char* destination)
 	/*nandfile = ISFS_Open(destination, ISFS_OPEN_READ);
 	if (nandfile < 0)
 	{
-		//printf("ISFS_Open('%s', READ) error: %ld.\n", destination, nandfile);
-		logfile("ISFS_Open('%s', READ) error: %ld.\r\n", destination, nandfile);
+		//printf("ISFS_Open('%s', READ) error: %d.\n", destination, nandfile);
+		logfile("ISFS_Open('%s', READ) error: %d.\r\n", destination, nandfile);
 		ISFS_Delete(destination);
 		return -1;
 	}	
@@ -1601,15 +1601,15 @@ s32 flash(char* source, char* destination)
 	ret = ISFS_GetFileStats(nandfile, &stats);
 	if (ret < 0)
 	{
-		//printf("\nISFS_GetFileStats(fd) returned %ld.\n", ret);
-		logfile("ISFS_GetFileStats(fd) returned %ld.\r\n", ret);
+		//printf("\nISFS_GetFileStats(fd) returned %d.\n", ret);
+		logfile("ISFS_GetFileStats(fd) returned %d.\r\n", ret);
 		ISFS_Close(nandfile);
 		ISFS_Delete(destination);
 		return -1;
 	}
 	
-	printf("Flashing file to NAND successful! New file is %lu bytes.\n", stats.file_length);
-	logfile("Flashing file to NAND successful! New file is %lu bytes.\r\n", stats.file_length);
+	printf("Flashing file to NAND successful! New file is %u bytes.\n", stats.file_length);
+	logfile("Flashing file to NAND successful! New file is %u bytes.\r\n", stats.file_length);
 	
 	ISFS_Close(nandfile);*/
 	
@@ -1712,8 +1712,8 @@ s32 writefolder(char *source, char *destination)
 	ret = ISFS_Delete(destination);
 	if (ret < 0)
 	{
-		printf("ISFS_Delete('%s') returned %ld.\n", destination, ret);
-		logfile("ISFS_Delete('%s') returned %ld.\r\n", destination, ret);
+		printf("ISFS_Delete('%s') returned %d.\n", destination, ret);
+		logfile("ISFS_Delete('%s') returned %d.\r\n", destination, ret);
 		free(dir);
 		return -1;
 	}
@@ -1721,8 +1721,8 @@ s32 writefolder(char *source, char *destination)
 	ret = ISFS_CreateDir(destination, 0, 3, 3, 3);
 	if (ret < 0)
 	{
-		printf("ISFS_CreateDir('%s', 0, 3, 3, 3) returned %ld.\n", destination, ret);
-		logfile("ISFS_CreateDir('%s', 0, 3, 3, 3) returned %ld.\r\n", destination, ret);
+		printf("ISFS_CreateDir('%s', 0, 3, 3, 3) returned %d.\n", destination, ret);
+		logfile("ISFS_CreateDir('%s', 0, 3, 3, 3) returned %d.\r\n", destination, ret);
 		free(dir);
 		return -1;
 	}
@@ -1792,7 +1792,7 @@ char *RemoveIllegalCharacters(char *name)
 	u32 i, len = strlen(name);
 	for (i = 0; i < len; i++)
 	{
-		// libFAT has problems reading and writing filenames with Unicode characters, like "é"
+		// libFAT has problems reading and writing filenames with Unicode characters, like "ï¿½"
 		if (memchr("?[]/\\=+<>:;\",*|^", name[i], sizeof("?[]/\\=+<>:;\",*|^") - 1) || name[i] < 0x20 || name[i] > 0x7E) name[i] = '_';
 	}
 	return name;
@@ -1804,8 +1804,8 @@ s32 extract_savedata(u64 titleID)
 	char *id = GetASCII(TITLE_LOWER(titleID));
 	char isfs_path[1024], dev_path[1024]; // source, destination
 	
-	logfile("Extracting title %08lx-%08lx...\r\n", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
-	snprintf(isfs_path, MAX_CHARACTERS(isfs_path), "/title/%08lx/%08lx/data", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
+	logfile("Extracting title %08x-%08x...\r\n", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
+	snprintf(isfs_path, MAX_CHARACTERS(isfs_path), "/title/%08x/%08x/data", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
 	logfile("ISFS path is '%s'.\r\n", isfs_path);
 	
 	ret = get_name(titleID, false);
@@ -1820,7 +1820,7 @@ s32 extract_savedata(u64 titleID)
 	if (ret >= 0)
 	{
 		/* Dump the title.tmd file */
-		snprintf(isfs_path, MAX_CHARACTERS(isfs_path), "/title/%08lx/%08lx/content/title.tmd", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
+		snprintf(isfs_path, MAX_CHARACTERS(isfs_path), "/title/%08x/%08x/content/title.tmd", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
 		strcat(dev_path, "/title.tmd");
 		
 		logfile("\r\ntitle.tmd path = %s.\r\n", isfs_path);
@@ -1850,8 +1850,8 @@ s32 install_savedata(u64 titleID)
 	char *id = GetASCII(TITLE_LOWER(titleID));
 	char dev_path[MAXPATHLEN * 2], isfs_path[ISFS_MAXPATH]; // source, destination
 	
-	logfile("Installing title %08lx-%08lx...\r\n", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
-	snprintf(isfs_path, MAX_CHARACTERS(isfs_path), "/title/%08lx/%08lx/data", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
+	logfile("Installing title %08x-%08x...\r\n", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
+	snprintf(isfs_path, MAX_CHARACTERS(isfs_path), "/title/%08x/%08x/data", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
 	logfile("ISFS path is '%s'.\r\n", isfs_path);
 	
 	snprintf(dev_path, MAX_CHARACTERS(dev_path), "%s:/YABDM/Savedata", DEVICE(0));
@@ -1878,28 +1878,28 @@ s32 install_savedata(u64 titleID)
 		}
 	}
 	
-	free(dir);
-	
 	if (!found)
 	{
 		printf("Couldn't find the savedata on the %s!\nPlease extract the savedata first.\n", DEVICE(1));
 		logfile("\r\nCouldn't find the savedata on the %s!\r\n", DEVICE(1));
 		return -1;
-	} else {
-		logfile("Savedata found: '%s'.\r\n", dir[i].name);
-		
-		char tmpPath[MAXPATHLEN];
-		snprintf(tmpPath, MAX_CHARACTERS(tmpPath), "/%s", dir[i].name);
-		strcat(dev_path, tmpPath);
-		
-		logfile("%s path is '%s'.\r\n", DEVICE(1), dev_path);
 	}
+	
+	logfile("Savedata found: '%s'.\r\n", dir[i].name);
+	
+	char tmpPath[MAXPATHLEN];
+	snprintf(tmpPath, MAX_CHARACTERS(tmpPath), "/%s", dir[i].name);
+	strcat(dev_path, tmpPath);
+	
+	logfile("%s path is '%s'.\r\n", DEVICE(1), dev_path);
+	
+	free(dir);
 	
 	ret = writefolder(dev_path, isfs_path);
 	if (ret >= 0)
 	{
 		/* Flash the title.tmd file */
-		snprintf(isfs_path, MAX_CHARACTERS(isfs_path), "/title/%08lx/%08lx/content/title.tmd", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
+		snprintf(isfs_path, MAX_CHARACTERS(isfs_path), "/title/%08x/%08x/content/title.tmd", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
 		strcat(dev_path, "/title.tmd");
 		
 		logfile("\r\ntitle.tmd path = %s.\r\n", dev_path);
@@ -2189,10 +2189,7 @@ s32 get_title_key(u64 tid, signed_blob *s_tik, u8 *key)
 	memset(iv, 0, sizeof(iv));
 	memcpy(iv, &tid, sizeof(tid));
 	
-	/* Check if the Common Key Index is 0x02 (vWii) */
-	u8 ck_index = p_tik->reserved[0x0B];
-	
-	if (aes_128_cbc_decrypt((ck_index == 0x02 ? vwii_commonkey : commonkey), iv, keyout, sizeof(keyout)) < 0)
+	if (aes_128_cbc_decrypt(commonkey, iv, keyout, sizeof(keyout)) < 0)
 	{
 		printf("Error decrypting Title Key.");
 		logfile("Error decrypting Title Key.");
@@ -2202,7 +2199,6 @@ s32 get_title_key(u64 tid, signed_blob *s_tik, u8 *key)
 	memcpy(key, keyout, sizeof(keyout));
 	logfile("\r\nDecrypted Title Key = ");
 	hex_key_dump(keyout, sizeof(keyout));
-	logfile("\r\nUsed %s Common Key (index = 0x%02x).\r\n", ck_index == 0x02 ? "vWii" : "Normal", ck_index);
 	
 	return 0;
 }
@@ -2213,7 +2209,7 @@ s32 Wad_Dump(u64 id, char *path)
 	if (ret < 0) return -2;
 	
 	logfile("Path for dump = %s.\r\n", path);
-	logfile("Started WAD Packing...\r\nPacking Title %08lx-%08lx.\r\n", TITLE_UPPER(id), TITLE_LOWER(id));
+	logfile("Started WAD Packing...\r\nPacking Title %08x-%08x.\r\n", TITLE_UPPER(id), TITLE_LOWER(id));
 
 	signed_blob *p_tik = NULL;
 	signed_blob *p_tmd = NULL;
@@ -2333,11 +2329,11 @@ s32 Wad_Dump(u64 id, char *path)
 	
 	for (cnt = 0; cnt < tmd_data->num_contents; cnt++)
 	{
-		printf("Processing content #%lu... ", cnt);
-		logfile("Processing content #%lu... ", cnt);
+		printf("Processing content #%u... ", cnt);
+		logfile("Processing content #%u... ", cnt);
 		tmd_content *content = &tmd_data->contents[cnt];
 		
-		if (cnt == 0) snprintf(footer_path, MAX_CHARACTERS(footer_path), "/title/%08lx/%08lx/content/%08lx.app", TITLE_UPPER(id), TITLE_LOWER(id), content->cid);
+		if (cnt == 0) snprintf(footer_path, MAX_CHARACTERS(footer_path), "/title/%08x/%08x/content/%08x.app", TITLE_UPPER(id), TITLE_LOWER(id), content->cid);
 		
 		logfile("Content type 0x%04x... ", content->type);
 		switch (content->type)
@@ -2365,7 +2361,7 @@ s32 Wad_Dump(u64 id, char *path)
 						
 						if (cntid == content->cid)
 						{
-							logfile("Found content %08lx @ 0x%08lx in tmdmod. ", content->cid, 0x1E4 + (36 * i));
+							logfile("Found content %08x @ 0x%08x in tmdmod. ", content->cid, 0x1E4 + (36 * i));
 							
 							if (tmdmodsize > (0x1E4 + (36 * (i + 1))))
 							{
@@ -2374,7 +2370,7 @@ s32 Wad_Dump(u64 id, char *path)
 							
 							tmdmodsize -= 36;
 							pad_data(tmdmod, tmdmodsize, false);
-							logfile("New tmdmodsize: %lu bytes.\r\n", tmdmodsize);
+							logfile("New tmdmodsize: %u bytes.\r\n", tmdmodsize);
 							
 							break;
 						}
@@ -2406,7 +2402,7 @@ s32 Wad_Dump(u64 id, char *path)
 		if (ret != -2)
 		{
 			printf("\nError reading content!\n");
-			logfile("Error reading content! (ret = %ld)", ret);
+			logfile("Error reading content! (ret = %d)", ret);
 		}
 		
 		free(header);
@@ -2449,7 +2445,7 @@ s32 Wad_Dump(u64 id, char *path)
 		logfile("Rearranging output file...\r\n");
 		
 		u32 size = ftell(wadout);
-		logfile("Current WAD size: %lu bytes.\r\n", size);
+		logfile("Current WAD size: %u bytes.\r\n", size);
 		
 		fseek(wadout, 0xA40 + round64(header->tik_len) + round64(header->tmd_len), SEEK_SET);
 		u32 tocopy = ftell(wadout);
@@ -2458,9 +2454,9 @@ s32 Wad_Dump(u64 id, char *path)
 		fseek(wadout, 0xA40 + round64(header->tik_len), SEEK_SET);
 		__fwrite(tmdmod, round64(tmdmodsize), 1, wadout);
 		u32 towrite = ftell(wadout);
-		printf("Wrote modified TMD @ 0x%08lx... ", towrite - round64(tmdmodsize));
+		printf("Wrote modified TMD @ 0x%08x... ", towrite - round64(tmdmodsize));
 		
-		logfile("tmdmodsize = %lu bytes / size = %lu bytes / tocopy = 0x%08lx / towrite = 0x%08lx\r\n", tmdmodsize, size, tocopy, towrite);
+		logfile("tmdmodsize = %u bytes / size = %u bytes / tocopy = 0x%08x / towrite = 0x%08x\r\n", tmdmodsize, size, tocopy, towrite);
 		
 		u32 blocksize = SD_BLOCKSIZE;
 		u8 *tempbuf = allocate_memory(blocksize);
@@ -2486,7 +2482,7 @@ s32 Wad_Dump(u64 id, char *path)
 		header->tmd_len = tmdmodsize;
 		
 		ftruncate(fileno(wadout), towrite);
-		logfile("New size: %lu bytes.\r\n", towrite);
+		logfile("New size: %u bytes.\r\n", towrite);
 		printf("done.\n");
 	}
 	
@@ -2624,7 +2620,7 @@ s32 Content_bin_Dump(FILE *cnt_bin, char* path)
 		{
 			found = true;
 			
-			logfile("\"Bk\" header found @ 0x%08lx... ", ftell(cnt_bin) - 0x14);
+			logfile("\"Bk\" header found @ 0x%08x... ", ftell(cnt_bin) - 0x14);
 			
 			/* Console ID verification */
 			memcpy(&part_C_cid, &(temp[0x04]), 4);
@@ -2648,7 +2644,7 @@ s32 Content_bin_Dump(FILE *cnt_bin, char* path)
 			/* Store TMD size */
 			memcpy(&tmd_size, &(temp[0x10]), 4);
 			header->tmd_len = tmd_size;
-			logfile("\r\nTMD Size = %lu... ", tmd_size);
+			logfile("\r\nTMD Size = %u... ", tmd_size);
 			
 			/* Prepare file stream position for TMD access */
 			fseek(cnt_bin, 0x68, SEEK_CUR);
@@ -2689,14 +2685,14 @@ s32 Content_bin_Dump(FILE *cnt_bin, char* path)
 	
 	/* Store the 64-bit TitleID (we need it for the GetTicket() function) */
 	memcpy(&titleID, &(tmd_buf[0x18C]), 8);
-	logfile("TitleID: %08lx-%08lx... ", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
+	logfile("TitleID: %08x-%08x... ", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
 	
 	if ((tmd_size % 64) != 0)
 	{
 		/* Prepare file stream position for content access */
 		fseek(cnt_bin, round64(tmd_size) - tmd_size, SEEK_CUR);
 		tmd_size = pad_data(tmd_buf, tmd_size, false);
-		logfile("Padded TMD size = %lu... ", tmd_size);
+		logfile("Padded TMD size = %u... ", tmd_size);
 	}
 	
 	footer_offset = ftell(cnt_bin);
@@ -2749,8 +2745,8 @@ s32 Content_bin_Dump(FILE *cnt_bin, char* path)
 	tmd_data = (tmd *)SIGNATURE_PAYLOAD(p_tmd);
 	for (cnt = 0; cnt < tmd_data->num_contents; cnt++)
 	{
-		printf("Processing content #%lu... ", cnt);
-		logfile("Processing content #%lu... ", cnt);
+		printf("Processing content #%u... ", cnt);
+		logfile("Processing content #%u... ", cnt);
 		tmd_content *content = &tmd_data->contents[cnt];
 		
 		if (cnt == 0)
@@ -2767,7 +2763,7 @@ s32 Content_bin_Dump(FILE *cnt_bin, char* path)
 		{
 			case 0x0001: // Normal
 			case 0x4001: // DLC, I'm not sure if this type of content gets included or not, but let's stay on the safe side
-				printf("Adding regular content %08lx... ", content->cid);
+				printf("Adding regular content %08x... ", content->cid);
 				ret = GetContentFromCntBin(cnt_bin, wadout, content->index, (u32)content->size, key, content->hash);
 				break;
 			case 0x8001: // Shared, they don't get included in the content.bin file
@@ -2817,7 +2813,7 @@ s32 Content_bin_Dump(FILE *cnt_bin, char* path)
 		return -2;
 	}
 	
-	logfile("Footer offset: 0x%08lx... ", footer_offset);
+	logfile("Footer offset: 0x%08x... ", footer_offset);
 	
 	fseek(cnt_bin, footer_offset, SEEK_SET);
 	__fread(footer_buf, footer_size, 1, cnt_bin);
@@ -2865,7 +2861,7 @@ u64 copy_id(char *path)
 	snprintf(low_out, 9, path+16);
 
 	u64 titleID = TITLE_ID(strtol(high_out, NULL, 16), strtol(low_out, NULL, 16));
-	//logfile("Generated COPY_ID was '%08lx-%08lx'.\r\n", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
+	//logfile("Generated COPY_ID was '%08x-%08x'.\r\n", TITLE_UPPER(titleID), TITLE_LOWER(titleID));
 	
 	return titleID;
 }
@@ -3077,7 +3073,7 @@ s32 dump_menu(char *cpath, int cline, dirent_t *ent)
 				} else {
 					if ((strncmp(ent[cline].titlename, "Unknown Hidden Channel", 22) == 0) || (strncmp(ent[cline].titlename, "Channel/Title deleted from Wii Menu? (couldn't get info)", 56) == 0))
 					{
-						snprintf(dump_path, MAX_CHARACTERS(dump_path), "%s:/YABDM/WAD/%08lx-%s v%u", DEVICE(0), TITLE_UPPER(titleID), ent[cline].name, get_version(titleID));
+						snprintf(dump_path, MAX_CHARACTERS(dump_path), "%s:/YABDM/WAD/%08x-%s v%u", DEVICE(0), TITLE_UPPER(titleID), ent[cline].name, get_version(titleID));
 					} else {
 						snprintf(dump_path, MAX_CHARACTERS(dump_path), "%s:/YABDM/WAD/%s", DEVICE(0), ent[cline].titlename);
 					}
@@ -3309,7 +3305,7 @@ s32 sd_browser()
 			}
 		}
 		
-		logfile("lcnt = %lu / cntbin_num = %lu / j = %lu.\r\n", lcnt, cntbin_num, j);
+		logfile("lcnt = %u / cntbin_num = %u / j = %u.\r\n", lcnt, cntbin_num, j);
 		
 		if (realloc(ent, sizeof(dirent_t) * cntbin_num) == NULL)
 		{
@@ -3492,7 +3488,7 @@ s32 create_name_list(char cpath[ISFS_MAXPATH + 1], dirent_t* ent, int lcnt)
 					snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), "BC-WFS v%u", get_version(TITLE_ID(0x00000001, 0x00000201)));
 					break;
 				default:
-					snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), "IOS%lu v%u", (u32)strtol(ent[i].name, NULL, 16), get_version(TITLE_ID(0x00000001, strtoll(ent[i].name, NULL, 16))));
+					snprintf(ent[i].titlename, MAX_CHARACTERS(ent[i].titlename), "IOS%u v%u", (u32)strtol(ent[i].name, NULL, 16), get_version(TITLE_ID(0x00000001, strtoll(ent[i].name, NULL, 16))));
 					break;
 			}
 		} else

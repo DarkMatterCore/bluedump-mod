@@ -22,6 +22,15 @@ static vu32 *_wiilight_reg = (u32*)0xCD0000C0;
 
 const char *languages[10] = { "Japanese", "English", "German", "French", "Spanish", "Italian", "Dutch", "Simp. Chinese", "Trad. Chinese", "Korean" };
 
+map_entry_t *cm;
+size_t content_map_size;
+size_t content_map_items;
+
+int lang;
+bool SDmnt, USBmnt, isSD, isUSB2, __debug, __wiilight, vwii, netw_init;
+
+char launch_path[MAXPATHLEN];
+
 bool IsWiiU(void)
 {
 	s32 ret;
@@ -211,7 +220,7 @@ void printheadline()
 	printf("Yet Another BlueDump MOD v%s.", VERSION);
 	
 	char buf[64];
-	sprintf(buf, "IOS%ld (v%ld)", IOS_GetVersion(), IOS_GetRevision());
+	sprintf(buf, "IOS%d (v%d)", IOS_GetVersion(), IOS_GetRevision());
 	printf("\x1b[%d;%dH", 0, cols-strlen(buf)-1);
 	printf(buf);
 	
@@ -276,13 +285,13 @@ bool PriiloaderCheck(u64 id)
 bool IsPriiloaderCnt(u16 cid)
 {
 	char priiloader_cnt[ISFS_MAXPATH];
-	snprintf(priiloader_cnt, MAX_CHARACTERS(priiloader_cnt), "/title/00000001/00000002/content/%08lx.app", (u32)((1 << 28) | cid));
+	snprintf(priiloader_cnt, MAX_CHARACTERS(priiloader_cnt), "/title/00000001/00000002/content/%08x.app", (u32)((1 << 28) | cid));
 	s32 cfd = ISFS_Open(priiloader_cnt, ISFS_OPEN_READ);
 	if (cfd >= 0)
 	{
 		ISFS_Close(cfd);
 		printf("Priiloader content detected!\n");
-		logfile("Priiloader content detected! Original System Menu content file: %08lx.app.\r\n", (u32)((1 << 28) | cid));
+		logfile("Priiloader content detected! Original System Menu content file: %08x.app.\r\n", (u32)((1 << 28) | cid));
 		return true;
 	}
 	
@@ -408,12 +417,12 @@ void KeepAccessRightsAndReload(s32 ios, bool verbose)
 	if (AHBPROT_DISABLED)
 	{
 		/* There should be nothing to worry about if this fails, as long as the new IOS is patched */
-		if (verbose) printf("\t- Patching IOS%ld to keep hardware access rights... ", IOS_GetVersion());
+		if (verbose) printf("\t- Patching IOS%d to keep hardware access rights... ", IOS_GetVersion());
 		ret = IosPatch_AHBPROT(false);
 		if (verbose) printf("%s.\n", (ret < 0 ? "FAILED" : "OK"));
 	}
 	
-	if (verbose) printf("\t- Reloading to IOS%ld... ", ios);
+	if (verbose) printf("\t- Reloading to IOS%d... ", ios);
 	WUPC_Shutdown();
 	WPAD_Shutdown();
 	IOS_ReloadIOS(ios);
@@ -426,7 +435,7 @@ void KeepAccessRightsAndReload(s32 ios, bool verbose)
 	
 	if (AHBPROT_DISABLED)
 	{
-		if (verbose) printf("\n\t- Applying runtime patches to IOS%ld... ", IOS_GetVersion());
+		if (verbose) printf("\n\t- Applying runtime patches to IOS%d... ", IOS_GetVersion());
 		ret = IosPatch_RUNTIME(true, false, vwii, false);
 		if (verbose) printf("%s.\n", (ret < 0 ? "FAILED" : "OK"));
 	}
@@ -553,7 +562,7 @@ s32 *get_ioslist(u32 *cnt)
 	res = ES_GetNumTitles(&tcnt);
 	if (res < 0)
 	{
-		printf("\t- ES_GetNumTitles: Error! (result = %ld).\n", res);
+		printf("\t- ES_GetNumTitles: Error! (result = %d).\n", res);
 		return 0;
 	}
 	
@@ -567,7 +576,7 @@ s32 *get_ioslist(u32 *cnt)
 	res = ES_GetTitles(buf, tcnt);
 	if (res < 0)
 	{
-		printf("\t- ES_GetTitles: Error! (result = %ld).\n", res);
+		printf("\t- ES_GetTitles: Error! (result = %d).\n", res);
 		free(buf);
 		return 0;
 	}
@@ -585,7 +594,7 @@ s32 *get_ioslist(u32 *cnt)
 			res = ES_GetStoredTMDSize(buf[i - k], &tmdSize);
 			if (res < 0)
 			{
-				printf("\t- ES_GetStoredTMDSize: Error! (result = %ld / IOS%lu).\n", res, ((u32)buf[i - k]));
+				printf("\t- ES_GetStoredTMDSize: Error! (result = %d / IOS%u).\n", res, ((u32)buf[i - k]));
 				break;
 			}
 			
@@ -593,7 +602,7 @@ s32 *get_ioslist(u32 *cnt)
 			if (!iosTMDBuffer)
 			{
 				res = -1;
-				printf("\t- Error allocating IOS%lu TMD buffer (size = %lu bytes).\n", ((u32)buf[i - k]), tmdSize);
+				printf("\t- Error allocating IOS%u TMD buffer (size = %u bytes).\n", ((u32)buf[i - k]), tmdSize);
 				break;
 			}
 			
@@ -603,7 +612,7 @@ s32 *get_ioslist(u32 *cnt)
 			res = ES_GetStoredTMD(buf[i - k], iosTMDBuffer, tmdSize);
 			if (res < 0)
 			{
-				printf("\t- ES_GetStoredTMD: Error! (result = %ld / IOS%lu).\n", res, ((u32)buf[i - k]));
+				printf("\t- ES_GetStoredTMD: Error! (result = %d / IOS%u).\n", res, ((u32)buf[i - k]));
 				free(iosTMDBuffer);
 				break;
 			}
@@ -648,12 +657,16 @@ s32 *get_ioslist(u32 *cnt)
 		return 0;
 	}
 	
-	if (realloc(buf, sizeof(u64) * icnt) == NULL)
+	u64 *tmp_buf = realloc(buf, sizeof(u64) * icnt);
+	if (!tmp_buf)
 	{
 		printf("\t- Error reallocating titlelist memory block!\n");
 		free(buf);
 		return 0;
 	}
+	
+	buf = tmp_buf;
+	tmp_buf = NULL;
 	
 	ioses = (s32 *)malloc(sizeof(s32) * icnt);
 	if (!ioses)
@@ -702,7 +715,7 @@ s32 ios_selectionmenu(s32 default_ios)
 		printf("Select the IOS version to use:       \b\b\b\b\b\b");
 		
 		set_highlight(true);
-		printf("IOS%ld", list[selection]);
+		printf("IOS%d", list[selection]);
 		set_highlight(false);
 		
 		printf("\n\nPress LEFT/RIGHT to change IOS version.");
@@ -816,7 +829,7 @@ s32 Settings_Menu()
 							ret = Mount_Devices();
 							if (ret != -2) logfile_header();
 						} else {
-							printf("\t- IOS reload aborted (IOS%ld is already loaded).", ret);
+							printf("\t- IOS reload aborted (IOS%d is already loaded).", ret);
 							waitforbuttonpress();
 						}
 					} else
@@ -849,7 +862,7 @@ s32 ahbprot_menu()
 	if (AHBPROT_DISABLED)
 	{
 		printf("Hardware protection is disabled!\n");
-		printf("Current IOS: %ld.\n\n", IOS_GetVersion());
+		printf("Current IOS: %d.\n\n", IOS_GetVersion());
 		
 		printf("Press A button to use full hardware access.\n");
 		printf("Press B button to reload to another IOS.\n");
@@ -908,7 +921,7 @@ s32 ahbprot_menu()
 			{
 				KeepAccessRightsAndReload(ret, true);
 			} else {
-				printf("\t- IOS reload aborted (IOS%ld is already loaded).", ret);
+				printf("\t- IOS reload aborted (IOS%d is already loaded).", ret);
 			}
 		} else
 		if (ret == 0)
@@ -951,7 +964,7 @@ void logfile_header()
 	logfile("\r\n\r\n*---------------------------------------------------------------------------------------------------------------------------*\r\n");
 	logfile("\r\n\r\nYet Another BlueDump MOD v%s - Logfile.\r\n", VERSION);
 	logfile("SDmnt(%d), USBmnt(%d), isUSB2(%d), isSD(%d), vwii(%d), __wiilight(%d).\r\n", SDmnt, USBmnt, isUSB2, isSD, vwii, __wiilight);
-	logfile("Using IOS%ld v%ld.\r\n", IOS_GetVersion(), IOS_GetRevision());
+	logfile("Using IOS%d v%d.\r\n", IOS_GetVersion(), IOS_GetRevision());
 	logfile("Console language: %d (%s).\r\n\r\n", lang, languages[lang]);
 }
 
@@ -963,7 +976,7 @@ void hexdump_log(void *d, int len)
 		u8 *data = (u8*)d;
 		for (off = 0; off < len; off += 16)
 		{
-			logfile("%08lx:  ", (u32)(16 * (off / 16)));
+			logfile("%08x:  ", (u32)(16 * (off / 16)));
 			for (f = 0; f < 16; f += 4)
 			{
 				for (i = 0; i < 4; i++)

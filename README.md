@@ -56,6 +56,14 @@ Thanks to
 Changelog
 --------------
 
+**YABDM v1.86 (February 4th, 2024 - DarkMatterCore):**
+
+* Fix building with latest devkitPPC + libogc releases.
+* Remove vWii common key based crypto for vWii system title dumps. Fixes installations with modern WAD Managers.
+    * A Wii U side WAD Manager shall be created to facilitate the installation of vanilla vWii system titles. It seems vIOS ES modules don't support common key index 0x02.
+
+This codebase is begging for a full rewrite. My eyes have witnessed the atrocities of my past sins. Don't expect any further updates.
+
 **YABDM v1.85 (June 29th, 2018 - DarkMatterCore):**
 
 * Fixed building warnings and errors with latest devkitPro + libogc.
@@ -120,7 +128,7 @@ I apologize for these mistakes. I don't have a TV anymore, so I wasn't able to t
 **YABDM v1.5 (October 13th, 2014 - DarkMatterCore):**
 
 * Fixed the region change procedure for DLC titles. Their Title IDs will now reflect the selected new region (in order to make them detectable by their corresponding game/channel).
-* The region change prompt will now always be displayed. Keep in mind that if you enable this option, the Ticket and/or TMD will be fakesigned automatically, depending on the category of the selected title (even if you choose not to). 
+* The region change prompt will now always be displayed. Keep in mind that if you enable this option, the Ticket and/or TMD will be fakesigned automatically, depending on the category of the selected title (even if you choose not to).
 * If the application detects that the Common Key Index is different than 0, it will automatically fakesign the Ticket (even if you choose not to), instead of only changing its value.
 * Reimplemented the Wii disc light feature as an optional read/write indicator. You can enable it through the use of the "wiilight" argument in the meta.xml file.
 * Reimplemented the ability to update the application straight from the Google Code SVN repository, by pressing buttons A and B at the same time. The meta.xml file will also get updated.

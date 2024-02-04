@@ -52,8 +52,6 @@ typedef struct
 	u32 footer_len;
 } ATTRIBUTE_PACKED wadHeader;
 
-wadHeader *header;
-
 /* Taken from Wiibrew */
 typedef struct
 {

@@ -7,7 +7,7 @@
 #include <runtimeiospatch.h>
 #include <malloc.h>
 
-#define VERSION "1.85"
+#define VERSION "1.86"
 
 #define MAXPATHLEN 256
 
@@ -36,14 +36,14 @@ typedef struct map_entry
 	u8 sha1[20];
 } __attribute__((packed)) map_entry_t;
 
-map_entry_t *cm;
-size_t content_map_size;
-size_t content_map_items;
+extern map_entry_t *cm;
+extern size_t content_map_size;
+extern size_t content_map_items;
 
-int lang;
-bool SDmnt, USBmnt, isSD, isUSB2, __debug, __wiilight, vwii, netw_init;
+extern int lang;
+extern bool SDmnt, USBmnt, isSD, isUSB2, __debug, __wiilight, vwii, netw_init;
 
-char launch_path[MAXPATHLEN];
+extern char launch_path[MAXPATHLEN];
 
 bool IsWiiU(void);
 u32 __fread(void *out, u32 size, u32 cnt, FILE *src);

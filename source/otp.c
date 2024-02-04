@@ -11,6 +11,14 @@
 
 static u8 otp_ptr[OTP_SIZE];
 
+bool use_bootmii_data;
+
+u8 prng_key[16]; // otp_ptr @ 0x68
+u32 console_id; // otp_ptr @ 0x24
+
+u8 bootmii_prng[16];
+u32 bootmii_cid;
+
 void OTP_Unmount()
 {
 	memset(otp_ptr, 0, OTP_SIZE);

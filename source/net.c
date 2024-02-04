@@ -45,8 +45,8 @@ s32 network_init(void)
 		s32 ret = if_config(hostip, NULL, NULL, true, MAX_INIT_RETRIES);
 		if (ret < 0)
 		{
-			printf("Error! (ret = %ld). Couldn't initialize the network!", ret);
-			logfile("if_config failed (ret = %ld).\r\n", ret);
+			printf("Error! (ret = %d). Couldn't initialize the network!", ret);
+			logfile("if_config failed (ret = %d).\r\n", ret);
 		} else {
 			printf("OK! IP: %s.\n", hostip);
 			logfile("OK! IP: %s.\r\n", hostip);
@@ -63,7 +63,7 @@ s32 network_init(void)
 	return 0;
 }
 
-s32 network_connect(char HOSTNAME[1024])
+s32 network_connect(char *hostname)
 {
 	struct hostent *he;
 	struct sockaddr_in sa;
@@ -75,11 +75,11 @@ s32 network_connect(char HOSTNAME[1024])
 	sockfd = net_socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
 	if (sockfd < 0)
 	{
-		logfile("Error initializing TCP socket (sockfd = %ld).\r\n", sockfd);
+		logfile("Error initializing TCP socket (sockfd = %d).\r\n", sockfd);
 		return sockfd;
 	}
 	
-	he = net_gethostbyname(HOSTNAME);
+	he = net_gethostbyname(hostname);
 	if (!he)
 	{
 		logfile("Couldn't get hostname.\r\n");
@@ -95,14 +95,14 @@ s32 network_connect(char HOSTNAME[1024])
 	ret = net_connect(sockfd, (struct sockaddr *)&sa, sizeof(struct sockaddr_in));
 	if (ret < 0)
 	{
-		logfile("Error connecting to the hostname (ret = %ld).\r\n", ret);
+		logfile("Error connecting to the hostname (ret = %d).\r\n", ret);
 		return ret;
 	}
 	
 	return 0;
 }
 
-s32 network_request(char NETWORK_PATH[1024], char HOSTNAME[1024])
+s32 network_request(char *network_path, char *hostname)
 {
 	char *ptr = NULL;
 	char buf[1024], request[256];
@@ -111,16 +111,16 @@ s32 network_request(char NETWORK_PATH[1024], char HOSTNAME[1024])
 	s32 ret;
 	
 	char *r = request;
-	r += sprintf(r, "GET %s HTTP/1.1\r\n", NETWORK_PATH);
+	r += sprintf(r, "GET %s HTTP/1.1\r\n", network_path);
 	r += sprintf(r, "User-Agent: bluedump-mod/%s (Nintendo Wii)\r\n", VERSION);
 	r += sprintf(r, "Accept: */*\r\n");
-	r += sprintf(r, "Host: %s\r\n", HOSTNAME);
+	r += sprintf(r, "Host: %s\r\n", hostname);
 	r += sprintf(r, "Cache-Control: no-cache\r\n\r\n");
 	
 	//printf("%s\n", request);
 	//logfile("\r\n%s", request);
 	
-	ret = network_connect(HOSTNAME);
+	ret = network_connect(hostname);
 	if (ret < 0) return ret;
 	
 	/* HTTPS support */
@@ -129,21 +129,21 @@ s32 network_request(char NETWORK_PATH[1024], char HOSTNAME[1024])
 		ret = ssl_init();
 		if (ret < 0)
 		{
-			logfile("Error initializing SSL interface (ret = %ld).\r\n", ret);
+			logfile("Error initializing SSL interface (ret = %d).\r\n", ret);
 			return ret;
 		}
 		
-		ssl_context = ssl_new((u8*)HOSTNAME, 0);
+		ssl_context = ssl_new((u8*)hostname, 0);
 		if (ssl_context < 0)
 		{
-			logfile("Error initializing new SSL context (ssl_context = %ld).\r\n", ssl_context);
+			logfile("Error initializing new SSL context (ssl_context = %d).\r\n", ssl_context);
 			return ssl_context;
 		}
 		
 		ret = ssl_setbuiltinclientcert(ssl_context, 0);
 		if (ret < 0)
 		{
-			logfile("Error setting built-in SSL client cert (ret = %ld).\r\n", ret);
+			logfile("Error setting built-in SSL client cert (ret = %d).\r\n", ret);
 			ssl_shutdown(ssl_context);
 			return ret;
 		}
@@ -151,7 +151,7 @@ s32 network_request(char NETWORK_PATH[1024], char HOSTNAME[1024])
 		ret = ssl_connect(ssl_context, sockfd);
 		if (ret < 0)
 		{
-			logfile("Error connecting to the hostname through SSL (ret = %ld).\r\n", ret);
+			logfile("Error connecting to the hostname through SSL (ret = %d).\r\n", ret);
 			ssl_shutdown(ssl_context);
 			return ret;
 		}
@@ -159,7 +159,7 @@ s32 network_request(char NETWORK_PATH[1024], char HOSTNAME[1024])
 		ret = ssl_handshake(ssl_context);
 		if (ret < 0)
 		{
-			logfile("Error doing a handshake to the hostname through SSL (ret = %ld).\r\n", ret);
+			logfile("Error doing a handshake to the hostname through SSL (ret = %d).\r\n", ret);
 			ssl_shutdown(ssl_context);
 			return ret;
 		}
@@ -167,14 +167,14 @@ s32 network_request(char NETWORK_PATH[1024], char HOSTNAME[1024])
 		ret = ssl_write(ssl_context, request, strlen(request));
 		if (ret < 0)
 		{
-			logfile("Error sending HTTPS request (ret = %ld).\r\n", ret);
+			logfile("Error sending HTTPS request (ret = %d).\r\n", ret);
 			return ret;
 		}
 	} else {
 		ret = net_write(sockfd, request, strlen(request));
 		if (ret < 0)
 		{
-			logfile("Error sending HTTP request (ret = %ld).\r\n", ret);
+			logfile("Error sending HTTP request (ret = %d).\r\n", ret);
 			return ret;
 		}
 	}
@@ -192,7 +192,7 @@ s32 network_request(char NETWORK_PATH[1024], char HOSTNAME[1024])
 		
 		if (ret <= 0)
 		{
-			logfile("Error reading data from hostname (ret = %ld).\r\n", ret);
+			logfile("Error reading data from hostname (ret = %d).\r\n", ret);
 			if (NETWORK_PORT == 443) ssl_shutdown(ssl_context);
 			return ret;
 		}
@@ -213,8 +213,8 @@ s32 network_request(char NETWORK_PATH[1024], char HOSTNAME[1024])
 		return -1;
 	}
 	
-	sscanf(ptr, "Content-Length: %lu", &size);
-	//printf("Content-Length: %lu bytes.\n", size);
+	sscanf(ptr, "Content-Length: %u", &size);
+	//printf("Content-Length: %u bytes.\n", size);
 
 	return size;
 }
@@ -234,7 +234,7 @@ s32 network_read(void *buf, u32 len)
 		
 		if (ret <= 0)
 		{
-			logfile("Error reading data from hostname (ret = %ld).\r\n", ret);
+			logfile("Error reading data from hostname (ret = %d).\r\n", ret);
 			if (NETWORK_PORT == 443) ssl_shutdown(ssl_context);
 			return ret;
 		}
@@ -245,17 +245,17 @@ s32 network_read(void *buf, u32 len)
 	return read;
 }
 
-s32 ReadNetwork(FILE *file, char NETWORK_PATH[1024], char HOSTNAME[1024])
+s32 ReadNetwork(FILE *file, char *network_path, char *hostname)
 {
 	s32 ret = 0;
 	u32 cnt, len, blksize = NETWORK_BLOCKSIZE, wrote;
 	
-	logfile("Getting \"%s%s\"... ", HOSTNAME, NETWORK_PATH);
+	logfile("Getting \"%s%s\"... ", hostname, network_path);
 	
-	len = network_request(NETWORK_PATH, HOSTNAME);
+	len = network_request(network_path, hostname);
 	if (len < 0) return len;
 	
-	logfile("File length: %lu bytes.\r\n", len);
+	logfile("File length: %u bytes.\r\n", len);
 	
 	time_t start, end;
 	char speed[1024];
@@ -269,10 +269,10 @@ s32 ReadNetwork(FILE *file, char NETWORK_PATH[1024], char HOSTNAME[1024])
 		if (blksize > len - cnt) blksize = len - cnt;
 		
 		time(&end);
-		sprintf(speed, "%ld", ((cnt / 1024) + 1)/(u32)(end - start));
+		sprintf(speed, "%u", ((cnt / 1024) + 1)/(u32)(end - start));
 		
 		Con_ClearLine();
-		printf("\t- Downloading %ld KB @ %s KB/s. Progress: %ld KB (%ld%%).", (len / 1024) + 1, speed, (cnt / 1024) + 1, PERCENT);
+		printf("\t- Downloading %u KB @ %s KB/s. Progress: %u KB (%u%%).", (len / 1024) + 1, speed, (cnt / 1024) + 1, PERCENT);
 		
 		ret = network_read(fileBuf, blksize);
 		if (ret != blksize)
@@ -306,8 +306,8 @@ s32 FileUpdate(char *path, bool is_dol)
 	ret = remove(fpath);
 	if (ret != 0)
 	{
-		printf("Error deleting previous %s! (ret = %ld)\n\n", (is_dol ? "boot.dol" : "meta.xml"), ret);
-		logfile("Error deleting previous %s! (ret = %ld)\r\n", (is_dol ? "boot.dol" : "meta.xml"), ret);
+		printf("Error deleting previous %s! (ret = %d)\n\n", (is_dol ? "boot.dol" : "meta.xml"), ret);
+		logfile("Error deleting previous %s! (ret = %d)\r\n", (is_dol ? "boot.dol" : "meta.xml"), ret);
 		return -1;
 	}
 	
@@ -344,7 +344,7 @@ bool CheckLatestVersion(float cur_ver)
 		len = network_request(NETWORK_VERSION_PATH, NETWORK_HOSTNAME);
 		if (len < 0) return len;
 		
-		logfile("File length: %lu bytes.\r\n", len);
+		logfile("File length: %u bytes.\r\n", len);
 		
 		for (cnt = 0; cnt < len; cnt += blksize)
 		{
